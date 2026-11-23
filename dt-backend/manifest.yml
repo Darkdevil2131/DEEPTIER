@@ -2,7 +2,7 @@
 applications:
   - name: deeptier-backend
     memory: 1G
-    disk_quota: 512M
+    disk_quota: 1G
     instances: 1
     path: target/dt-backend-1.0.0-SNAPSHOT.jar
     buildpacks:
@@ -10,11 +10,9 @@ applications:
     env:
       JBP_CONFIG_COMPONENTS: "jres: ['com.sap.xs.java.buildpack.jre.SAPMachineJRE']"
       JBP_CONFIG_SAP_MACHINE_JRE: "{ version: 21.+ }"
-      SPRING_PROFILES_ACTIVE: cloud
+      SPRING_PROFILES_ACTIVE: hana
       DEEPTIER_INTERNAL_KEY: ((deeptier-internal-key))
-    services:
-      - deeptier-hana-free
     health-check-type: http
     health-check-http-endpoint: /actuator/health
     routes:
-      - route: deeptier-backend.cfapps.ap10.hana.ondemand.com
+      - route: deeptier-backend-98c41646trial.cfapps.ap21.hana.ondemand.com

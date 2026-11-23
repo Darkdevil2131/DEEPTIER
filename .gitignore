@@ -32,9 +32,11 @@
 ### VS Code ###
 .vscode/
 
-# Secrets management (keep .env.local strictly ignored)
+# Secrets and CF variables management (strictly ignored)
 .env.local
 *.env.local
+vars.yml
+*.vars.yml
 
 # Docs
 docs/
