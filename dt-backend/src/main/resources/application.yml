@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: deeptier-backend
+
+  config:
+    import: optional:file:.env[.properties],optional:file:.env.local[.properties],optional:file:../.env[.properties],optional:file:../.env.local[.properties]
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/deeptier}
+    driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    display-request-duration: true
+    tags-sorter: alpha
+  show-actuator: true
+
+deeptier:
+  agent:
+    runtime: python              # hot-swap to 'joule' later
+  internal:
+    key: ${DEEP_TIER_INTERNAL_KEY:dt-internal-dev-key-2026}
+  monte-carlo:
+    default-seed: 20261121
+    trials: 10000
+  optimizer:
+    max-legs: 4
+    top-k: 20

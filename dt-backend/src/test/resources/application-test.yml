@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/deeptier
+    driver-class-name: org.postgresql.Driver
+    username: postgres
+    password: "951357"
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+deeptier:
+  internal:
+    key: test-key
+  monte-carlo:
+    default-seed: 20261121
+    trials: 10000
+  optimizer:
+    max-legs: 4
+    top-k: 20

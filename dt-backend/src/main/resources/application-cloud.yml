@@ -1,0 +1,11 @@
+# BTP Cloud Foundry profile - activated by SPRING_PROFILES_ACTIVE=cloud
+spring:
+  datasource:
+    url: ${VCAP_SERVICES_HANA_URL:${DB_URL:jdbc:postgresql://localhost:5432/deeptier}}
+    driver-class-name: ${VCAP_SERVICES_HANA_DRIVER:org.postgresql.Driver}
+    username: ${VCAP_SERVICES_HANA_USER:${DB_USERNAME:postgres}}
+    password: ${VCAP_SERVICES_HANA_PASSWORD:${DB_PASSWORD:}}
+
+deeptier:
+  internal:
+    key: ${DEEP_TIER_INTERNAL_KEY:dt-internal-dev-key-2026}

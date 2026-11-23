@@ -1,0 +1,19 @@
+# SAP HANA Cloud Profile - activated by SPRING_PROFILES_ACTIVE=hana
+spring:
+  datasource:
+    url: jdbc:sap://${HANA_HOST}:443/?encrypt=true&validateCertificate=true
+    username: ${HANA_USER:DBADMIN}
+    password: ${HANA_PASSWORD}
+    driver-class-name: com.sap.db.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+deeptier:
+  internal:
+    key: ${DEEP_TIER_INTERNAL_KEY:dt-internal-dev-key-2026}
