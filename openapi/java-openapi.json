@@ -1,0 +1,2224 @@
+{
+  "openapi" : "3.0.1",
+  "info" : {
+    "title" : "DeepTier API",
+    "description" : "SAP Hackfest 2026 - Supply Chain Risk Cockpit. All arithmetic (exposure, Monte Carlo, optimizer) runs in deterministic Java. AI agents only classify signals and draft RFQs via /internal/tools/*.",
+    "contact" : {
+      "name" : "DeepTier Team",
+      "url" : "https://github.com/deeptier"
+    },
+    "license" : {
+      "name" : "MIT"
+    },
+    "version" : "1.0.0-SNAPSHOT"
+  },
+  "servers" : [ {
+    "url" : "http://localhost",
+    "description" : "Generated server url"
+  } ],
+  "security" : [ {
+    "InternalKey" : [ ]
+  } ],
+  "tags" : [ {
+    "name" : "Approval",
+    "description" : "Human-in-the-Loop approval gate, idempotency, and mock RFQ creation"
+  }, {
+    "name" : "Supply Chain",
+    "description" : "Supply chain CSV onboarding and ingestion"
+  }, {
+    "name" : "WhatIf",
+    "description" : "Tariff shock simulation and recovery optimizer"
+  }, {
+    "name" : "RFQ",
+    "description" : "Mock RFQ tracking (strictly sentExternally = false)"
+  }, {
+    "name" : "TierMap",
+    "description" : "Supplier network graph - nodes and links with evidence quality"
+  }, {
+    "name" : "Seed",
+    "description" : "Demo data management - load/reset the deterministic HPH-1042 scenario"
+  }, {
+    "name" : "Audit",
+    "description" : "Immutable hash-chained audit log"
+  }, {
+    "name" : "Internal Tools (AI)",
+    "description" : "Deterministic math endpoints for AI agent consumption. Protected by X-Internal-Key. AI classifies signals; Java computes all numbers."
+  }, {
+    "name" : "Disruption Agent",
+    "description" : "Hybrid AI + deterministic Java disruption analysis"
+  }, {
+    "name" : "Actuator",
+    "description" : "Monitor and interact",
+    "externalDocs" : {
+      "description" : "Spring Boot Actuator Web API Documentation",
+      "url" : "https://docs.spring.io/spring-boot/docs/current/actuator-api/html/"
+    }
+  } ],
+  "paths" : {
+    "/internal/tools/draft_rfq" : {
+      "post" : {
+        "tags" : [ "Internal Tools (AI)" ],
+        "summary" : "Draft mock RFQ (never sent externally)",
+        "description" : "AI agent drafts a mock Request for Quotation. This endpoint NEVER sends anything externally - it creates an in-memory/DB mock only, for the Human-in-the-Loop approval gate.",
+        "operationId" : "draftRfq",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DraftRfqRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/DraftRfqResponse"
+                }
+              }
+            }
+          }
+        },
+        "security" : [ {
+          "InternalKey" : [ ]
+        } ]
+      }
+    },
+    "/internal/tools/compute_exposure" : {
+      "post" : {
+        "tags" : [ "Internal Tools (AI)" ],
+        "summary" : "Compute duty exposure in INR",
+        "description" : "Formula: annualSpendInr * costFraction * deltaPercentagePoints / 100. Returns BigDecimal - AI must NOT recompute this.",
+        "operationId" : "computeExposure",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ComputeExposureRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ComputeExposureResponse"
+                }
+              }
+            }
+          }
+        },
+        "security" : [ {
+          "InternalKey" : [ ]
+        } ]
+      }
+    },
+    "/internal/tools/compute_cover" : {
+      "post" : {
+        "tags" : [ "Internal Tools (AI)" ],
+        "summary" : "Compute days of inventory cover",
+        "description" : "Returns daysOfCover = unitsOnHand / dailyDemand. Returns UNKNOWN if dailyDemand is 0 or null.",
+        "operationId" : "computeCover",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ComputeCoverRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ComputeCoverResponse"
+                }
+              }
+            }
+          }
+        },
+        "security" : [ {
+          "InternalKey" : [ ]
+        } ]
+      }
+    },
+    "/internal/tools/classify_signal" : {
+      "post" : {
+        "tags" : [ "Internal Tools (AI)" ],
+        "summary" : "AI signal classifier stub",
+        "description" : "AI agent classifies the risk signal text into a category. AI must cite evidenceIds from the response - never invent.",
+        "operationId" : "classifySignal",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ClassifySignalRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ClassifySignalResponse"
+                }
+              }
+            }
+          }
+        },
+        "security" : [ {
+          "InternalKey" : [ ]
+        } ]
+      }
+    },
+    "/api/whatif/simulate" : {
+      "post" : {
+        "tags" : [ "WhatIf" ],
+        "summary" : "Simulate tariff/disruption shock",
+        "description" : "Returns duty exposure (INR), days of cover, stockout date, Monte Carlo percentiles (p10/p50/p90), and ranked recovery options. All arithmetic runs in deterministic Java - AI agents do NOT compute numbers.",
+        "operationId" : "simulate",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SimulateRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WhatIfSimulationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/import/csv" : {
+      "post" : {
+        "tags" : [ "Supply Chain" ],
+        "summary" : "Import supply chain network via multipart CSV upload",
+        "description" : "Atomically parses and validates supplier nodes and links from CSV. Supports mode=replace (default) or mode=append.",
+        "operationId" : "importCsvRaw_1",
+        "parameters" : [ {
+          "name" : "mode",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : "replace"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "text/csv" : {
+              "schema" : {
+                "type" : "string"
+              }
+            },
+            "text/plain" : {
+              "schema" : {
+                "type" : "string"
+              }
+            },
+            "multipart/form-data" : {
+              "schema" : {
+                "required" : [ "file" ],
+                "type" : "object",
+                "properties" : {
+                  "file" : {
+                    "type" : "string",
+                    "format" : "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CsvImportResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/seed/reset" : {
+      "post" : {
+        "tags" : [ "Seed" ],
+        "summary" : "Reset to seed scenario",
+        "description" : "Wipes all data and loads the deterministic Hydraulic Pump Housing demo. Use seed=20261121 for the official Hackfest demo.",
+        "operationId" : "reset",
+        "parameters" : [ {
+          "name" : "seed",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64",
+            "default" : 20261121
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SeedResetResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals" : {
+      "get" : {
+        "tags" : [ "Approval" ],
+        "summary" : "List approval requests",
+        "description" : "Returns approval requests optionally filtered by status, ordered by createdAt desc.",
+        "operationId" : "list_1",
+        "parameters" : [ {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "CREATED", "PENDING_APPROVAL", "APPROVED", "REJECTED", "RFQ_ISSUED", "AUDITED" ]
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ApprovalResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "Approval" ],
+        "summary" : "Create an approval request",
+        "description" : "Creates a new approval request in PENDING_APPROVAL state. Supports Idempotency-Key header.",
+        "operationId" : "createApproval",
+        "parameters" : [ {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "description" : "Idempotency key to prevent duplicate creation",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "X-Idempotency-Key",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateApprovalRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApprovalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/{id}/reject" : {
+      "post" : {
+        "tags" : [ "Approval" ],
+        "summary" : "Reject request",
+        "description" : "Rejects a PENDING_APPROVAL request, updates status to REJECTED then AUDITED without generating RFQ. Supports Idempotency-Key header.",
+        "operationId" : "reject",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "description" : "Idempotency key to prevent duplicate rejection",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "X-Idempotency-Key",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ApprovalDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApprovalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/{id}/approve" : {
+      "post" : {
+        "tags" : [ "Approval" ],
+        "summary" : "Approve request",
+        "description" : "Approves a PENDING_APPROVAL request, generates a Mock RFQ, and records audit trail. Supports Idempotency-Key header.",
+        "operationId" : "approve",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "description" : "Idempotency key to prevent duplicate approval/RFQ generation",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "X-Idempotency-Key",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ApprovalDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApprovalDecisionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/analyze-disruption" : {
+      "post" : {
+        "tags" : [ "Disruption Agent" ],
+        "summary" : "Analyze a supply-chain disruption alert",
+        "description" : "Delegates parameter extraction to the Python AI brain with automatic deterministic Java fallback, executes all financial/inventory math in Java, persists a DisruptionEvent, and logs an AuditEvent.",
+        "operationId" : "analyzeDisruption",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AnalyzeDisruptionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AnalyzeDisruptionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/tools/get_tier_map" : {
+      "get" : {
+        "tags" : [ "Internal Tools (AI)" ],
+        "summary" : "Get supplier tier map for AI context",
+        "description" : "Returns a lightweight graph for AI agent context injection. AI uses nodeIds/linkTypes as evidenceIds in its explanations.",
+        "operationId" : "getTierMap",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/InternalTierMapResponse"
+                }
+              }
+            }
+          }
+        },
+        "security" : [ {
+          "InternalKey" : [ ]
+        } ]
+      }
+    },
+    "/api/tier-map/nodes" : {
+      "get" : {
+        "tags" : [ "TierMap" ],
+        "summary" : "List all supplier nodes",
+        "operationId" : "listNodes",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/SupplierNode"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tier-map/links" : {
+      "get" : {
+        "tags" : [ "TierMap" ],
+        "summary" : "List all supplier links",
+        "operationId" : "listLinks",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/SupplierLink"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tier-map/graph" : {
+      "get" : {
+        "tags" : [ "TierMap" ],
+        "summary" : "Get full tier map as graph (nodes + links)",
+        "description" : "Returns the complete supplier graph ready for D3/SAPUI5 rendering.",
+        "operationId" : "graph",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/TierMapGraphResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rfqs" : {
+      "get" : {
+        "tags" : [ "RFQ" ],
+        "summary" : "List all generated mock RFQs",
+        "description" : "Returns list of all generated MockRfq records ordered by issuedAt desc.",
+        "operationId" : "list",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/MockRfqResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rfqs/{id}/sap-payload" : {
+      "get" : {
+        "tags" : [ "RFQ" ],
+        "summary" : "Generate SAP S/4HANA Clean-Core Purchase Requisition payload",
+        "description" : "Maps an AUDITED MockRfq and its ApprovalRequest + AuditEvent hash to S/4HANA OData API_PURCHASEREQ_PROCESS_SRV schema.",
+        "operationId" : "getSapPayload",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SapPurchaseRequisitionPayload"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit" : {
+      "get" : {
+        "tags" : [ "Audit" ],
+        "summary" : "Get the hash-chained audit log",
+        "operationId" : "getAuditLog",
+        "parameters" : [ {
+          "name" : "scenarioId",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/AuditEvent"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit/events" : {
+      "get" : {
+        "tags" : [ "Audit" ],
+        "summary" : "List all audit events (chronological)",
+        "operationId" : "listAll",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/AuditEvent"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit/events/scenario/{scenarioId}" : {
+      "get" : {
+        "tags" : [ "Audit" ],
+        "summary" : "Get audit trail for a specific scenario",
+        "operationId" : "byScenario",
+        "parameters" : [ {
+          "name" : "scenarioId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/AuditEvent"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/{id}" : {
+      "get" : {
+        "tags" : [ "Approval" ],
+        "summary" : "Get approval request by ID",
+        "operationId" : "getById",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApprovalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/actuator" : {
+      "get" : {
+        "tags" : [ "Actuator" ],
+        "summary" : "Actuator root web endpoint",
+        "operationId" : "links",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/vnd.spring-boot.actuator.v3+json" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "object",
+                    "additionalProperties" : {
+                      "$ref" : "#/components/schemas/Link"
+                    }
+                  }
+                }
+              },
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "object",
+                    "additionalProperties" : {
+                      "$ref" : "#/components/schemas/Link"
+                    }
+                  }
+                }
+              },
+              "application/vnd.spring-boot.actuator.v2+json" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "object",
+                    "additionalProperties" : {
+                      "$ref" : "#/components/schemas/Link"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/actuator/metrics" : {
+      "get" : {
+        "tags" : [ "Actuator" ],
+        "summary" : "Actuator web endpoint 'metrics'",
+        "operationId" : "metrics",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/vnd.spring-boot.actuator.v3+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/vnd.spring-boot.actuator.v2+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/actuator/metrics/{requiredMetricName}" : {
+      "get" : {
+        "tags" : [ "Actuator" ],
+        "summary" : "Actuator web endpoint 'metrics-requiredMetricName'",
+        "operationId" : "metrics-requiredMetricName",
+        "parameters" : [ {
+          "name" : "requiredMetricName",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/vnd.spring-boot.actuator.v3+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/vnd.spring-boot.actuator.v2+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/actuator/info" : {
+      "get" : {
+        "tags" : [ "Actuator" ],
+        "summary" : "Actuator web endpoint 'info'",
+        "operationId" : "info",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/vnd.spring-boot.actuator.v3+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/vnd.spring-boot.actuator.v2+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/actuator/health" : {
+      "get" : {
+        "tags" : [ "Actuator" ],
+        "summary" : "Actuator web endpoint 'health'",
+        "operationId" : "health",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/vnd.spring-boot.actuator.v3+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/vnd.spring-boot.actuator.v2+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/actuator/health/**" : {
+      "get" : {
+        "tags" : [ "Actuator" ],
+        "summary" : "Actuator web endpoint 'health-path'",
+        "operationId" : "health-path",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/vnd.spring-boot.actuator.v3+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              },
+              "application/vnd.spring-boot.actuator.v2+json" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "DraftRfqRequest" : {
+        "required" : [ "deliveryOption", "quantity", "supplierNodeId" ],
+        "type" : "object",
+        "properties" : {
+          "supplierNodeId" : {
+            "type" : "string"
+          },
+          "quantity" : {
+            "type" : "string"
+          },
+          "deliveryOption" : {
+            "type" : "string"
+          },
+          "scenarioId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "DraftRfqResponse" : {
+        "type" : "object",
+        "properties" : {
+          "tool" : {
+            "type" : "string"
+          },
+          "rfqId" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "sentExternally" : {
+            "type" : "boolean"
+          },
+          "requiresHumanApproval" : {
+            "type" : "boolean"
+          },
+          "approvalState" : {
+            "type" : "string"
+          },
+          "supplierNodeId" : {
+            "type" : "string"
+          },
+          "quantity" : {
+            "type" : "string"
+          },
+          "deliveryOption" : {
+            "type" : "string"
+          },
+          "draftText" : {
+            "type" : "string"
+          },
+          "dataClass" : {
+            "type" : "string"
+          },
+          "evidenceIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "note" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ComputeExposureRequest" : {
+        "required" : [ "annualSpendInr", "costFraction", "deltaPercentagePoints" ],
+        "type" : "object",
+        "properties" : {
+          "annualSpendInr" : {
+            "type" : "number"
+          },
+          "costFraction" : {
+            "maximum" : 1.0,
+            "exclusiveMaximum" : false,
+            "minimum" : 0.0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          },
+          "deltaPercentagePoints" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "evidenceIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "ComputeExposureResponse" : {
+        "type" : "object",
+        "properties" : {
+          "tool" : {
+            "type" : "string"
+          },
+          "dutyExposureInr" : {
+            "type" : "number"
+          },
+          "dataClass" : {
+            "type" : "string"
+          },
+          "evidenceIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "formula" : {
+            "type" : "string"
+          },
+          "inputs" : {
+            "$ref" : "#/components/schemas/ExposureInputs"
+          }
+        }
+      },
+      "ExposureInputs" : {
+        "type" : "object",
+        "properties" : {
+          "annualSpendInr" : {
+            "type" : "number"
+          },
+          "costFraction" : {
+            "type" : "number"
+          },
+          "deltaPercentagePoints" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ComputeCoverRequest" : {
+        "type" : "object",
+        "properties" : {
+          "unitsOnHand" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "dailyDemand" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "leadTimeDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ComputeCoverResponse" : {
+        "type" : "object",
+        "properties" : {
+          "tool" : {
+            "type" : "string"
+          },
+          "unitsOnHand" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "dailyDemand" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "daysOfCover" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "daysOfCoverDisplay" : {
+            "type" : "string"
+          },
+          "leadTimeDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "gapDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "dataClass" : {
+            "type" : "string"
+          },
+          "reason" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ClassifySignalRequest" : {
+        "required" : [ "signalText" ],
+        "type" : "object",
+        "properties" : {
+          "signalText" : {
+            "type" : "string"
+          },
+          "hsCode" : {
+            "type" : "string"
+          },
+          "originCountry" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ClassifySignalResponse" : {
+        "type" : "object",
+        "properties" : {
+          "tool" : {
+            "type" : "string"
+          },
+          "inputText" : {
+            "type" : "string"
+          },
+          "classifiedCategory" : {
+            "type" : "string"
+          },
+          "confidence" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "severity" : {
+            "type" : "string"
+          },
+          "affectedHsCodes" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "evidenceIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "dataClass" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SimulateRequest" : {
+        "type" : "object",
+        "properties" : {
+          "scenarioId" : {
+            "type" : "string"
+          },
+          "hsCode" : {
+            "type" : "string"
+          },
+          "originCountry" : {
+            "type" : "string"
+          },
+          "deltaPercentagePoints" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "annualSpendInr" : {
+            "type" : "number"
+          },
+          "costFraction" : {
+            "type" : "number"
+          },
+          "unitsOnHand" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "dailyDemand" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "leadTimeDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "lateCostPerDayInr" : {
+            "type" : "number"
+          },
+          "seed" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "CoverResult" : {
+        "type" : "object",
+        "properties" : {
+          "unitsOnHand" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "dailyDemand" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "replenishmentLeadDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "coverDays" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "coverDaysDisplay" : {
+            "type" : "string"
+          },
+          "stockoutDate" : {
+            "type" : "string",
+            "format" : "date"
+          },
+          "gapDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "lateCostPerDayInr" : {
+            "type" : "number"
+          },
+          "expectedLateLossInr" : {
+            "type" : "number"
+          },
+          "dataClass" : {
+            "type" : "string",
+            "enum" : [ "SYNTHETIC", "OBSERVED", "ESTIMATED", "ASSUMED" ]
+          },
+          "note" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ExposureSummary" : {
+        "type" : "object",
+        "properties" : {
+          "hsCode" : {
+            "type" : "string"
+          },
+          "originCountry" : {
+            "type" : "string"
+          },
+          "deltaPercentagePoints" : {
+            "type" : "number"
+          },
+          "passThroughPct" : {
+            "type" : "number"
+          },
+          "totalExposureInr" : {
+            "type" : "number"
+          },
+          "lineItems" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PartExposure"
+            }
+          },
+          "dataClass" : {
+            "type" : "string",
+            "enum" : [ "SYNTHETIC", "OBSERVED", "ESTIMATED", "ASSUMED" ]
+          },
+          "evidenceIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "PartExposure" : {
+        "type" : "object",
+        "properties" : {
+          "linkId" : {
+            "type" : "string"
+          },
+          "fromSupplierId" : {
+            "type" : "string"
+          },
+          "toSupplierId" : {
+            "type" : "string"
+          },
+          "supplierName" : {
+            "type" : "string"
+          },
+          "supplierCountry" : {
+            "type" : "string"
+          },
+          "hsCode" : {
+            "type" : "string"
+          },
+          "tier" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "annualSpendInr" : {
+            "type" : "number"
+          },
+          "costFraction" : {
+            "type" : "number"
+          },
+          "affectedSpendInr" : {
+            "type" : "number"
+          },
+          "dutyDeltaInr" : {
+            "type" : "number"
+          },
+          "dataClass" : {
+            "type" : "string",
+            "enum" : [ "SYNTHETIC", "OBSERVED", "ESTIMATED", "ASSUMED" ]
+          }
+        }
+      },
+      "RejectedOption" : {
+        "type" : "object",
+        "properties" : {
+          "optionId" : {
+            "type" : "string"
+          },
+          "optionType" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "reasonCode" : {
+            "type" : "string"
+          },
+          "reasonMessage" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RouteOption" : {
+        "type" : "object",
+        "properties" : {
+          "rank" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "optionId" : {
+            "type" : "string"
+          },
+          "optionType" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "modeChain" : {
+            "type" : "string"
+          },
+          "freightCostInr" : {
+            "type" : "number"
+          },
+          "handlingCostInr" : {
+            "type" : "number"
+          },
+          "insuranceCostInr" : {
+            "type" : "number"
+          },
+          "modeledDutyInr" : {
+            "type" : "number"
+          },
+          "holdingCostInr" : {
+            "type" : "number"
+          },
+          "residualGapDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "expectedLateCostInr" : {
+            "type" : "number"
+          },
+          "totalImpactInr" : {
+            "type" : "number"
+          },
+          "etaDaysP50" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "etaDaysP90" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "recommended" : {
+            "type" : "boolean"
+          },
+          "evidenceIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "SimulationResult" : {
+        "type" : "object",
+        "properties" : {
+          "seed" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "trials" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "arrivalDaysP10" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "arrivalDaysP50" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "arrivalDaysP90" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "deadlineMissProbability" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "stockoutProbability" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "expectedLateDays" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "expectedLateLossInr" : {
+            "type" : "number"
+          },
+          "dataClass" : {
+            "type" : "string",
+            "enum" : [ "SYNTHETIC", "OBSERVED", "ESTIMATED", "ASSUMED" ]
+          },
+          "note" : {
+            "type" : "string"
+          }
+        }
+      },
+      "WhatIfSimulationResponse" : {
+        "type" : "object",
+        "properties" : {
+          "scenarioId" : {
+            "type" : "string"
+          },
+          "dataClass" : {
+            "type" : "string",
+            "enum" : [ "SYNTHETIC", "OBSERVED", "ESTIMATED", "ASSUMED" ]
+          },
+          "evidenceIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "tariffShock" : {
+            "$ref" : "#/components/schemas/ExposureSummary"
+          },
+          "inventory" : {
+            "$ref" : "#/components/schemas/CoverResult"
+          },
+          "monteCarlo" : {
+            "$ref" : "#/components/schemas/SimulationResult"
+          },
+          "recoveryOptions" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RouteOption"
+            }
+          },
+          "rejectedOptions" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RejectedOption"
+            }
+          },
+          "executionTimeMs" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "note" : {
+            "type" : "string"
+          }
+        }
+      },
+      "CsvImportResponse" : {
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "string"
+          },
+          "totalRowsProcessed" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "nodesCreated" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "linksCreated" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "scenarioId" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "SeedResetResponse" : {
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "string"
+          },
+          "seed" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "dataClass" : {
+            "type" : "string"
+          },
+          "scenario" : {
+            "type" : "string"
+          },
+          "nodes" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "links" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "CreateApprovalRequest" : {
+        "required" : [ "partCode", "recommendedQty", "targetSupplierId" ],
+        "type" : "object",
+        "properties" : {
+          "partCode" : {
+            "type" : "string"
+          },
+          "sourceSupplierId" : {
+            "type" : "string"
+          },
+          "targetSupplierId" : {
+            "type" : "string"
+          },
+          "recommendedQty" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "estimatedLandedCost" : {
+            "type" : "number"
+          },
+          "estimatedLeadTimeDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "requestedBy" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ApprovalResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "partCode" : {
+            "type" : "string"
+          },
+          "sourceSupplierId" : {
+            "type" : "string"
+          },
+          "targetSupplierId" : {
+            "type" : "string"
+          },
+          "recommendedQty" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "estimatedLandedCost" : {
+            "type" : "number"
+          },
+          "estimatedLeadTimeDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "approvalStatus" : {
+            "type" : "string",
+            "enum" : [ "CREATED", "PENDING_APPROVAL", "APPROVED", "REJECTED", "RFQ_ISSUED", "AUDITED" ]
+          },
+          "requestedBy" : {
+            "type" : "string"
+          },
+          "reviewerName" : {
+            "type" : "string"
+          },
+          "reviewComment" : {
+            "type" : "string"
+          },
+          "rfqId" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "ApprovalDecisionRequest" : {
+        "type" : "object",
+        "properties" : {
+          "reviewerName" : {
+            "type" : "string"
+          },
+          "comment" : {
+            "type" : "string"
+          },
+          "actor" : {
+            "type" : "string"
+          },
+          "reason" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ApprovalDecisionResponse" : {
+        "type" : "object",
+        "properties" : {
+          "approval" : {
+            "$ref" : "#/components/schemas/ApprovalResponse"
+          },
+          "rfq" : {
+            "$ref" : "#/components/schemas/MockRfqResponse"
+          }
+        }
+      },
+      "MockRfqResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "approvalRequestId" : {
+            "type" : "string"
+          },
+          "targetSupplierId" : {
+            "type" : "string"
+          },
+          "partCode" : {
+            "type" : "string"
+          },
+          "requestedQty" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "quotedLandedCost" : {
+            "type" : "number"
+          },
+          "expectedLeadTimeDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "rfqStatus" : {
+            "type" : "string"
+          },
+          "issuedBy" : {
+            "type" : "string"
+          },
+          "issuedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "AnalyzeDisruptionRequest" : {
+        "required" : [ "alertText" ],
+        "type" : "object",
+        "properties" : {
+          "alertText" : {
+            "maxLength" : 2000,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "partCode" : {
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "scenarioId" : {
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "unitsOnHand" : {
+            "minimum" : 0,
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "dailyDemand" : {
+            "minimum" : 0,
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "leadTimeDays" : {
+            "maximum" : 3650,
+            "minimum" : 0,
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "annualSpendInr" : {
+            "minimum" : 0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          },
+          "costFraction" : {
+            "maximum" : 1,
+            "exclusiveMaximum" : false,
+            "minimum" : 0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          },
+          "lateCostPerDayInr" : {
+            "minimum" : 0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          },
+          "seed" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "AnalyzeDisruptionResponse" : {
+        "type" : "object",
+        "properties" : {
+          "eventId" : {
+            "type" : "string"
+          },
+          "scenarioId" : {
+            "type" : "string"
+          },
+          "partCode" : {
+            "type" : "string"
+          },
+          "affectedHsCode" : {
+            "type" : "string"
+          },
+          "originCountry" : {
+            "type" : "string"
+          },
+          "tariffDeltaPercent" : {
+            "type" : "number"
+          },
+          "delayDays" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "signalType" : {
+            "type" : "string"
+          },
+          "confidence" : {
+            "type" : "number"
+          },
+          "extractionEngine" : {
+            "type" : "string"
+          },
+          "executiveBrief" : {
+            "type" : "string"
+          },
+          "evidenceIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "simulation" : {
+            "$ref" : "#/components/schemas/WhatIfSimulationResponse"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "InternalTierMapResponse" : {
+        "type" : "object",
+        "properties" : {
+          "tool" : {
+            "type" : "string"
+          },
+          "nodes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/TierNodeDto"
+            }
+          },
+          "links" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/TierLinkDto"
+            }
+          },
+          "dataClass" : {
+            "type" : "string"
+          }
+        }
+      },
+      "TierLinkDto" : {
+        "type" : "object",
+        "properties" : {
+          "from" : {
+            "type" : "string"
+          },
+          "to" : {
+            "type" : "string"
+          },
+          "hsCode" : {
+            "type" : "string"
+          },
+          "annualSpendInr" : {
+            "type" : "number"
+          },
+          "costFraction" : {
+            "type" : "number"
+          },
+          "linkType" : {
+            "type" : "string"
+          }
+        }
+      },
+      "TierNodeDto" : {
+        "type" : "object",
+        "properties" : {
+          "nodeId" : {
+            "type" : "string"
+          },
+          "tier" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "country" : {
+            "type" : "string"
+          },
+          "linkType" : {
+            "type" : "string"
+          },
+          "confidence" : {
+            "type" : "number",
+            "format" : "double"
+          }
+        }
+      },
+      "SupplierNode" : {
+        "required" : [ "name", "supplierId" ],
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "supplierId" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "country" : {
+            "type" : "string"
+          },
+          "tier" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "linkType" : {
+            "type" : "string",
+            "enum" : [ "DECLARED", "INFERRED", "ASSUMED" ]
+          },
+          "confidence" : {
+            "maximum" : 1.0,
+            "exclusiveMaximum" : false,
+            "minimum" : 0.0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          },
+          "dataClass" : {
+            "type" : "string",
+            "enum" : [ "SYNTHETIC", "OBSERVED", "ESTIMATED", "ASSUMED" ]
+          },
+          "evidenceIds" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "SupplierLink" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "fromSupplierId" : {
+            "type" : "string"
+          },
+          "toSupplierId" : {
+            "type" : "string"
+          },
+          "hsCode" : {
+            "type" : "string"
+          },
+          "linkType" : {
+            "type" : "string",
+            "enum" : [ "DECLARED", "INFERRED", "ASSUMED" ]
+          },
+          "confidence" : {
+            "type" : "number"
+          },
+          "annualSpendInr" : {
+            "type" : "number"
+          },
+          "costFraction" : {
+            "type" : "number"
+          },
+          "dataClass" : {
+            "type" : "string",
+            "enum" : [ "SYNTHETIC", "OBSERVED", "ESTIMATED", "ASSUMED" ]
+          },
+          "evidenceIds" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "TierMapGraphResponse" : {
+        "type" : "object",
+        "properties" : {
+          "nodes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SupplierNode"
+            }
+          },
+          "links" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SupplierLink"
+            }
+          },
+          "dataClass" : {
+            "type" : "string"
+          },
+          "totalNodes" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "hiddenTiersCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "CorrelationMeta" : {
+        "type" : "object",
+        "properties" : {
+          "deepTierRfqId" : {
+            "type" : "string"
+          },
+          "approvalRequestId" : {
+            "type" : "string"
+          },
+          "idempotencyKey" : {
+            "type" : "string"
+          },
+          "auditHash" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PurchaseReqnItem" : {
+        "type" : "object",
+        "properties" : {
+          "PurchaseRequisitionItemText" : {
+            "type" : "string"
+          },
+          "Material" : {
+            "type" : "string"
+          },
+          "Plant" : {
+            "type" : "string"
+          },
+          "StorageLocation" : {
+            "type" : "string"
+          },
+          "RequestedQuantity" : {
+            "type" : "string"
+          },
+          "BaseUnit" : {
+            "type" : "string"
+          },
+          "PurchaseRequisitionPrice" : {
+            "type" : "string"
+          },
+          "PurReqnPriceQuantity" : {
+            "type" : "string"
+          },
+          "Currency" : {
+            "type" : "string"
+          },
+          "DeliveryDate" : {
+            "type" : "string"
+          },
+          "FixedSupplier" : {
+            "type" : "string"
+          },
+          "AccountAssignmentCategory" : {
+            "type" : "string"
+          },
+          "PurReqnOrigin" : {
+            "type" : "string"
+          },
+          "ExternalApprovalStatus" : {
+            "type" : "string"
+          },
+          "RequisitionerName" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PurchaseReqnItemsWrapper" : {
+        "type" : "object",
+        "properties" : {
+          "results" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PurchaseReqnItem"
+            }
+          }
+        }
+      },
+      "PurchaseRequisitionBody" : {
+        "type" : "object",
+        "properties" : {
+          "PurchaseRequisitionType" : {
+            "type" : "string"
+          },
+          "PurReqnDescription" : {
+            "type" : "string"
+          },
+          "to_PurchaseReqnItem" : {
+            "$ref" : "#/components/schemas/PurchaseReqnItemsWrapper"
+          }
+        }
+      },
+      "SapPurchaseRequisitionPayload" : {
+        "type" : "object",
+        "properties" : {
+          "sapService" : {
+            "type" : "string"
+          },
+          "entitySet" : {
+            "type" : "string"
+          },
+          "correlation" : {
+            "$ref" : "#/components/schemas/CorrelationMeta"
+          },
+          "payload" : {
+            "$ref" : "#/components/schemas/PurchaseRequisitionBody"
+          }
+        }
+      },
+      "AuditEvent" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "scenarioId" : {
+            "type" : "string"
+          },
+          "eventType" : {
+            "type" : "string"
+          },
+          "actor" : {
+            "type" : "string"
+          },
+          "entityType" : {
+            "type" : "string"
+          },
+          "entityId" : {
+            "type" : "string"
+          },
+          "payload" : {
+            "type" : "string"
+          },
+          "beforeHash" : {
+            "type" : "string"
+          },
+          "afterHash" : {
+            "type" : "string"
+          },
+          "occurredAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "prevHash" : {
+            "type" : "string"
+          },
+          "hash" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Link" : {
+        "type" : "object",
+        "properties" : {
+          "href" : {
+            "type" : "string"
+          },
+          "templated" : {
+            "type" : "boolean"
+          }
+        }
+      }
+    },
+    "securitySchemes" : {
+      "InternalKey" : {
+        "type" : "apiKey",
+        "description" : "Required for /internal/tools/* endpoints",
+        "name" : "X-Internal-Key",
+        "in" : "header"
+      }
+    }
+  }
+}

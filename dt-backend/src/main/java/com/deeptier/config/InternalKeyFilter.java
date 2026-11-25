@@ -6,8 +6,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * Guards /internal/** endpoints with the X-Internal-Key header.
@@ -16,10 +19,11 @@ import java.io.IOException;
 @Component
 public class InternalKeyFilter extends OncePerRequestFilter {
 
-    private final String expectedKey;
+    private final byte[] expectedKey;
 
     public InternalKeyFilter(DeepTierProperties props) {
-        this.expectedKey = props.internal().key();
+        String key = props.internal().key();
+        this.expectedKey = key == null || key.isBlank() ? new byte[0] : key.getBytes(StandardCharsets.UTF_8);
     }
 
     @Override
@@ -28,9 +32,10 @@ public class InternalKeyFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
 
-        if (request.getRequestURI().startsWith("/internal/")) {
+        if (UrlPathHelper.defaultInstance.getPathWithinApplication(request).startsWith("/internal/")) {
             String provided = request.getHeader("X-Internal-Key");
-            if (!expectedKey.equals(provided)) {
+            if (expectedKey.length == 0 || provided == null
+                    || !MessageDigest.isEqual(expectedKey, provided.getBytes(StandardCharsets.UTF_8))) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 response.setContentType("application/json");
                 response.getWriter().write(

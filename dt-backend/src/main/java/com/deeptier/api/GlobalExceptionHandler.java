@@ -1,5 +1,6 @@
 package com.deeptier.api;
 
+import com.deeptier.approval.CsvValidationException;
 import com.deeptier.approval.IllegalStateTransitionException;
 import com.deeptier.approval.ResourceNotFoundException;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,20 @@ public class GlobalExceptionHandler {
         problem.setTitle("Validation Error");
         problem.setType(URI.create("https://deeptier.io/errors/validation-error"));
         problem.setProperty("code", "VALIDATION_ERROR");
+        problem.setProperty("traceId", UUID.randomUUID().toString());
+        problem.setProperty("retryable", false);
+        problem.setProperty("timestamp", Instant.now().toString());
+
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler(CsvValidationException.class)
+    public ResponseEntity<ProblemDetail> handleCsvValidation(CsvValidationException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("CSV Validation Failed");
+        problem.setType(URI.create("https://deeptier.io/errors/validation-error"));
+        problem.setProperty("code", "CSV_VALIDATION_ERROR");
+        problem.setProperty("errors", ex.getErrors());
         problem.setProperty("traceId", UUID.randomUUID().toString());
         problem.setProperty("retryable", false);
         problem.setProperty("timestamp", Instant.now().toString());

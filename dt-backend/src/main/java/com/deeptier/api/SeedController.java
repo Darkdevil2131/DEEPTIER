@@ -1,6 +1,8 @@
 package com.deeptier.api;
 
 import com.deeptier.api.dto.SeedResetResponse;
+import com.deeptier.repo.SupplierLinkRepository;
+import com.deeptier.repo.SupplierNodeRepository;
 import com.deeptier.seed.SeedGenerator;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,6 +19,8 @@ import java.time.Instant;
 public class SeedController {
 
     private final SeedGenerator seedGenerator;
+    private final SupplierNodeRepository nodeRepo;
+    private final SupplierLinkRepository linkRepo;
 
     @PostMapping("/reset")
     @Operation(summary = "Reset to seed scenario",
@@ -32,8 +36,8 @@ public class SeedController {
                 seed,
                 "SYNTHETIC",
                 "HPH-1042 Hydraulic Pump Housing",
-                3,
-                2,
+                (int) nodeRepo.count(),
+                (int) linkRepo.count(),
                 Instant.now()
         ));
     }

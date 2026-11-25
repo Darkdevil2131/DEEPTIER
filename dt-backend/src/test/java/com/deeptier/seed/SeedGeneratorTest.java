@@ -1,6 +1,7 @@
 package com.deeptier.seed;
 
 import com.deeptier.repo.AuditEventRepository;
+import com.deeptier.repo.BackupSupplierRepository;
 import com.deeptier.repo.SupplierLinkRepository;
 import com.deeptier.repo.SupplierNodeRepository;
 import org.junit.jupiter.api.Test;
@@ -17,14 +18,16 @@ class SeedGeneratorTest {
     @Autowired SeedGenerator seedGenerator;
     @Autowired SupplierNodeRepository nodeRepo;
     @Autowired SupplierLinkRepository linkRepo;
+    @Autowired BackupSupplierRepository backupSupplierRepo;
     @Autowired AuditEventRepository auditRepo;
 
     @Test
-    void resetLoads3Nodes2Links() {
+    void resetLoads5Nodes4Links4BackupSuppliers() {
         seedGenerator.reset(20261121L);
 
-        assertThat(nodeRepo.count()).isEqualTo(3);
-        assertThat(linkRepo.count()).isEqualTo(2);
+        assertThat(nodeRepo.count()).isEqualTo(5);
+        assertThat(linkRepo.count()).isEqualTo(4);
+        assertThat(backupSupplierRepo.count()).isEqualTo(4);
         assertThat(auditRepo.count()).isGreaterThanOrEqualTo(1);
     }
 
@@ -35,6 +38,8 @@ class SeedGeneratorTest {
         assertThat(nodeRepo.findById(SeedGenerator.NODE_OEM)).isPresent();
         assertThat(nodeRepo.findById(SeedGenerator.NODE_ALPHA)).isPresent();
         assertThat(nodeRepo.findById(SeedGenerator.NODE_BETA)).isPresent();
+        assertThat(nodeRepo.findById(SeedGenerator.NODE_RAJKOT)).isPresent();
+        assertThat(nodeRepo.findById(SeedGenerator.NODE_ROTTERDAM)).isPresent();
     }
 
     @Test
@@ -64,8 +69,8 @@ class SeedGeneratorTest {
         seedGenerator.reset(20261121L);
         seedGenerator.reset(20261121L);
 
-        // Second reset wipes and re-creates - counts should still be 3/2/1
-        assertThat(nodeRepo.count()).isEqualTo(3);
-        assertThat(linkRepo.count()).isEqualTo(2);
+        assertThat(nodeRepo.count()).isEqualTo(5);
+        assertThat(linkRepo.count()).isEqualTo(4);
+        assertThat(backupSupplierRepo.count()).isEqualTo(4);
     }
 }

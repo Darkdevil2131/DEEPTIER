@@ -1,5 +1,9 @@
 package com.deeptier.sap;
 
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+
 /**
  * Hot-swappable AI agent gateway.
  *
@@ -14,6 +18,27 @@ package com.deeptier.sap;
  * use those results in natural-language explanations and RFQ drafts.
  */
 public interface AgentGateway {
+
+    record DeepTierBrainResult(
+            String affectedHsCode,
+            String originCountry,
+            BigDecimal tariffDeltaPercent,
+            int delayDays,
+            String signalType,
+            BigDecimal confidence,
+            String extractionEngine,
+            String executiveBrief,
+            List<String> evidenceIds
+    ) {}
+
+    /**
+     * Call the AI brain to extract disruption parameters and optionally synthesize a grounded brief.
+     * Returns Optional.empty() when the external AI runtime is offline or timed out so Java can
+     * seamlessly fall back to deterministic rule-based extraction.
+     */
+    default Optional<DeepTierBrainResult> analyzeDisruption(String alertText, String partCode, String scenarioId) {
+        return Optional.empty();
+    }
 
     /**
      * Classify a disruption signal and return structured risk assessment.

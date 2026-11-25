@@ -1,6 +1,9 @@
 package com.deeptier.engine;
 
+import com.deeptier.domain.BackupSupplier;
 import com.deeptier.domain.DataClass;
+import com.deeptier.repo.BackupSupplierRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -31,6 +34,17 @@ import java.util.List;
  */
 @Service
 public class OptimizerService {
+
+    private final BackupSupplierRepository backupSupplierRepo;
+
+    public OptimizerService() {
+        this.backupSupplierRepo = null;
+    }
+
+    @Autowired
+    public OptimizerService(BackupSupplierRepository backupSupplierRepo) {
+        this.backupSupplierRepo = backupSupplierRepo;
+    }
 
     public record RouteOption(
             int rank,
@@ -162,7 +176,52 @@ public class OptimizerService {
                 List.of("EV-WH-PUNE-01")
         ));
 
-        // -- 4. BUY_AHEAD Check (Acceptance test D07) -------------------------
+        // -- 4. Vetted Backup Supplier Reroutes -------------------------------
+        if (backupSupplierRepo != null) {
+            List<BackupSupplier> vetted = backupSupplierRepo.findByPartCodeAndIsVettedTrueOrderByUnitCostInrAsc("HPH-1042");
+            if (vetted.isEmpty()) {
+                vetted = backupSupplierRepo.findByIsVettedTrueOrderByUnitCostInrAsc();
+            }
+            for (BackupSupplier supplier : vetted) {
+                int residualGap = Math.min(Math.max(gapDays, 0), supplier.getExpeditedLeadTimeDays());
+                BigDecimal freight = supplier.getExpeditedFreightInr();
+                BigDecimal rerouteDuty = supplier.getUnitCostInr()
+                        .multiply(BigDecimal.valueOf(120))
+                        .multiply(supplier.getTariffRatePercent())
+                        .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+                BigDecimal rerouteLateLoss = dailyLoss.multiply(BigDecimal.valueOf(residualGap));
+                BigDecimal rerouteTotalImpact = freight.add(rerouteDuty).add(rerouteLateLoss);
+                String modeChain = "IN".equalsIgnoreCase(supplier.getCountry())
+                        ? "DOMESTIC_ROAD"
+                        : "AIR_OR_OCEAN -> ROAD";
+                String locationLabel = supplier.getHubLocation() != null
+                        ? supplier.getHubLocation()
+                        : supplier.getCountry();
+
+                feasible.add(new RouteOption(
+                        0,
+                        "OPT-REROUTE-" + supplier.getSupplierId(),
+                        "REROUTE",
+                        String.format("Vetted backup reroute: %s (%s, quality %.2f)",
+                                supplier.getSupplierName(), locationLabel, supplier.getQualityScore()),
+                        modeChain,
+                        freight,
+                        BigDecimal.valueOf(10_000),
+                        BigDecimal.valueOf(8_000),
+                        rerouteDuty,
+                        BigDecimal.ZERO,
+                        residualGap,
+                        rerouteLateLoss,
+                        rerouteTotalImpact,
+                        supplier.getExpeditedLeadTimeDays().doubleValue(),
+                        supplier.getStandardLeadTimeDays().doubleValue(),
+                        false,
+                        List.of("EV-VETTED-" + supplier.getSupplierId())
+                ));
+            }
+        }
+
+        // -- 5. BUY_AHEAD Check (Acceptance test D07) -------------------------
         int effectiveDays = tariffEffectiveDays != null ? tariffEffectiveDays : 14;
         if (replenishmentLeadDays > effectiveDays) {
             // Cannot buy ahead because lead time (30d) exceeds tariff effective window (14d)
