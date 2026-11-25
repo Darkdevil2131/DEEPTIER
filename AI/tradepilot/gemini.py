@@ -6,7 +6,7 @@ class GeminiNarrator:
     def __init__(self):
         self.enabled=os.getenv("GEMINI_ENABLED","false").strip().lower()=="true"
         self.api_key=os.getenv("GEMINI_API_KEY")
-        self.model=os.getenv("GEMINI_MODEL","gemini-3.5-flash-lite")
+        self.model=os.getenv("GEMINI_MODEL","gemini-2.5-flash")
     def narrate(self,agent_results:dict)->dict:
         if not self.enabled: return {"status":"disabled","message":"Offline deterministic mode; Gemini is disabled."}
         if not self.api_key: return {"status":"unavailable","message":"Gemini is enabled but GEMINI_API_KEY is not configured."}

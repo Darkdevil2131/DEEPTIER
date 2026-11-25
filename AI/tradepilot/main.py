@@ -1,20 +1,17 @@
 from __future__ import annotations
-import logging, os, time
+import logging, os, secrets, time
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse
 from dotenv import load_dotenv
 load_dotenv()
+from .agents.deeptier_brain import DeepTierAnalyzeRequest, DeepTierBrain
 from .agents.orchestrator import LogisticsOrchestrator
 from .gemini import GeminiNarrator
-from .commercial import (ApprovalCreate, BookingIntentCreate, CarrierResponseCreate,
-                         CommercialWorkflow, PurchaseOrderCreate, RFQCreate,
-                         TrackingEventCreate)
 from .document_processing import DocumentProcessingError, MAX_DOCUMENT_BYTES, process_document_bytes
 from .evaluation import EvaluationRequest, evaluate_decisions
 from .models import DocumentValidationRequest, DocumentValidationResponse, ShipmentAnalysis, ShipmentRequest
-from .notifications import NotificationConfigurationError, SMTPNotificationAdapter
 from .operations import OperationsStore
 from .platform import Metrics, Principal, RateLimiter, authenticate, configured_keys, role_allows
 from .storage import ShipmentStore, create_shipment_store
@@ -23,9 +20,8 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"))
 logger=logging.getLogger("tradepilot")
 store=create_shipment_store()
 operations=OperationsStore()
-commercial=CommercialWorkflow(operations)
-notifications=SMTPNotificationAdapter()
 orchestrator=LogisticsOrchestrator()
+deeptier_brain=DeepTierBrain()
 narrator=GeminiNarrator()
 rate_limiter=RateLimiter()
 metrics=Metrics()
@@ -42,7 +38,7 @@ app=FastAPI(title="TradePilot AI Multi-Agent Backend",version="1.0.0",descriptio
 @app.middleware("http")
 async def request_logging(request:Request,call_next):
     start=time.monotonic()
-    if request.url.path not in {"/api/v1/health", "/api/v1/ready", "/api/v1/metrics"}:
+    if request.url.path not in {"/health", "/api/v1/health", "/api/v1/ready", "/api/v1/metrics"}:
         identity=request.client.host if request.client else "unknown"
         limit=max(1,int(os.getenv("API_RATE_LIMIT_PER_MINUTE","60")))
         allowed, retry = rate_limiter.allow(identity, limit)
@@ -86,6 +82,24 @@ def require_role(role: str):
         return principal
     return dependency
 
+def require_internal_or_analyst(
+    x_internal_key: str | None = Header(default=None, alias="X-Internal-Key"),
+    authorization: str | None = Header(default=None),
+) -> Principal:
+    if x_internal_key is not None:
+        expected = os.getenv("DEEPTIER_INTERNAL_KEY", "").strip()
+        if not expected:
+            raise HTTPException(status_code=503, detail="Internal key authentication is not configured")
+        if not secrets.compare_digest(x_internal_key.encode(), expected.encode()):
+            raise HTTPException(status_code=401, detail="Invalid internal API key")
+        return Principal(subject="dt-backend-internal", role="analyst")
+    principal = require_api_key(authorization)
+    if not role_allows(principal.role, "analyst"):
+        raise HTTPException(status_code=403, detail="analyst role required")
+    return principal
+
+
+@app.get("/health",tags=["health"])
 @app.get("/api/v1/health",tags=["health"])
 async def health():
     return {"status":"ok","mode":"offline_deterministic","gemini_enabled":narrator.enabled,
@@ -183,79 +197,25 @@ def get_job(job_id: str, principal: Principal = Depends(require_role("viewer")))
     return job
 
 
-def _workflow_call(action):
+@app.post("/api/v1/deeptier/analyze", tags=["deeptier"])
+def analyze_deeptier(payload: DeepTierAnalyzeRequest, principal: Principal = Depends(require_internal_or_analyst)):
     try:
-        return action()
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        result = deeptier_brain.analyze(payload)
+        operations.log(
+            principal.subject,
+            principal.role,
+            "deeptier.analyze",
+            result["scenarioId"],
+            {"partCode": payload.partCode, "backendStatus": result["backendStatus"]},
+        )
+        return result
+    except Exception:
+        logger.exception("deeptier analysis failed")
+        raise HTTPException(status_code=500, detail="DeepTier analysis could not be completed")
 
 
-@app.post("/api/v1/rfqs", status_code=201, tags=["commercial"])
-def create_rfq(payload: RFQCreate, principal: Principal = Depends(require_role("analyst"))):
-    return commercial.create_rfq(payload, principal.subject, principal.role)
-
-
-@app.post("/api/v1/rfqs/{rfq_id}/dispatch", tags=["commercial"])
-def dispatch_rfq(rfq_id: str, principal: Principal = Depends(require_role("operator"))):
-    return _workflow_call(lambda: commercial.dispatch_rfq(rfq_id, principal.subject, principal.role))
-
-
-@app.post("/api/v1/rfqs/{rfq_id}/responses", status_code=201, tags=["commercial"])
-def carrier_response(rfq_id: str, payload: CarrierResponseCreate, principal: Principal = Depends(require_role("operator"))):
-    return _workflow_call(lambda: commercial.submit_response(rfq_id, payload, principal.subject, principal.role))
-
-
-@app.post("/api/v1/approvals", status_code=201, tags=["commercial"])
-def approve_commercial(payload: ApprovalCreate, principal: Principal = Depends(require_role("approver"))):
-    return _workflow_call(lambda: commercial.approve(payload, principal.subject, principal.role))
-
-
-@app.post("/api/v1/bookings", status_code=201, tags=["commercial"])
-def booking_intent(payload: BookingIntentCreate, principal: Principal = Depends(require_role("operator"))):
-    return _workflow_call(lambda: commercial.create_booking_intent(payload, principal.subject, principal.role))
-
-
-@app.post("/api/v1/purchase-orders", status_code=201, tags=["commercial"])
-def purchase_order(payload: PurchaseOrderCreate, principal: Principal = Depends(require_role("operator"))):
-    return commercial.create_purchase_order(payload, principal.subject, principal.role)
-
-
-@app.post("/api/v1/bookings/{booking_id}/tracking", tags=["commercial"])
-def add_tracking(booking_id: str, payload: TrackingEventCreate, principal: Principal = Depends(require_role("operator"))):
-    return _workflow_call(lambda: commercial.add_tracking_event(booking_id, payload, principal.subject, principal.role))
-
-
-@app.get("/api/v1/commercial/{record_id}", tags=["commercial"])
-def commercial_record(record_id: str, principal: Principal = Depends(require_role("viewer"))):
-    record = operations.get_record(record_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Commercial record not found")
-    return record
-
-
-@app.post("/api/v1/notifications/{notification_id}/send", tags=["commercial"])
-def send_notification(notification_id: str, principal: Principal = Depends(require_role("operator"))):
-    record = operations.get_record(notification_id)
-    if not record or record["kind"] != "notification":
-        raise HTTPException(status_code=404, detail="Notification not found")
-    if record["status"] != "queued":
-        raise HTTPException(status_code=409, detail="Only queued notifications can be sent")
-    payload = dict(record["payload"])
-    if not payload.get("recipient"):
-        raise HTTPException(status_code=409, detail="Notification has no configured email recipient")
-    try:
-        result = notifications.send(payload["recipient"], payload["subject"], payload["body"])
-    except NotificationConfigurationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    payload["external_send"] = True
-    payload["delivery_result"] = result
-    updated = operations.update_record(notification_id, "sent", payload)
-    operations.log(principal.subject, principal.role, "notification.send", notification_id, {"channel": "smtp"})
-    return updated
+# Commercial ERP routes (/rfqs, /approvals, /bookings, /purchase-orders, /commercial, /notifications)
+# are intentionally unmounted; Java dt-backend + SAP HANA is the sole ERP & governance authority.
 
 
 @app.post("/api/v1/evaluations/decision-quality", tags=["evaluation"])
