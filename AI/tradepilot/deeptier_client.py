@@ -22,7 +22,7 @@ class DeepTierClient:
         self,
         base_url: str | None = None,
         internal_key: str | None = None,
-        timeout: float = 10.0,
+        timeout: float = 4.0,
         transport: httpx.BaseTransport | None = None,
     ):
         self.base_url = (base_url or os.getenv("DEEPTIER_BACKEND_URL") or "http://127.0.0.1:8080").rstrip("/")

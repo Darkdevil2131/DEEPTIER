@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
+from time import monotonic
 from typing import Any, TypedDict
 from uuid import uuid4
 
@@ -47,12 +49,16 @@ class DeepTierBrainState(TypedDict, total=False):
     approval_draft: dict[str, Any]
 
 
-_HS_PATTERN = re.compile(r"\bHS(?:\s*code)?[\s:#-]*(\d{4,8})\b", re.IGNORECASE)
+_HS_PATTERN = re.compile(r"\bHSN?(?:\s*code)?[\s:#-]*(\d{4,8})\b", re.IGNORECASE)
 _PCT_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|percent|percentage\s*points?)", re.IGNORECASE)
+_RANGE_PATTERN = re.compile(r"\bfrom\s+(\d+(?:\.\d+)?)\s*(?:%|percent)\s+to\s+(\d+(?:\.\d+)?)\s*(?:%|percent)", re.IGNORECASE)
+_TARIFF_PATTERN = re.compile(r"\b(?:tariffs?|dut(?:y|ies)|levy|customs)\b", re.IGNORECASE)
 _DELAY_PATTERN = re.compile(
     r"(?:delay(?:ed)?(?:\s+by)?\s*|lead\s*time\s*\+?\s*)(\d+)\s*days?\b|\b(\d+)\s*days?\s*(?:[a-z]+\s+){0,2}(?:delay|stoppage|lead)",
     re.IGNORECASE,
 )
+_LOGISTICS_PATTERN = re.compile(r"\b(?:congestion|strike|blockade|delay(?:ed|s)?|stoppage|port\s+closure)\b", re.IGNORECASE)
+JAVA_TOOL_BUDGET_SECONDS = 6.0
 
 
 def _extract_deterministic(alert_text: str) -> dict[str, Any]:
@@ -60,14 +66,18 @@ def _extract_deterministic(alert_text: str) -> dict[str, Any]:
     hs_match = _HS_PATTERN.search(text)
     pct_match = _PCT_PATTERN.search(text)
     delay_match = _DELAY_PATTERN.search(text)
-
-    affected_hs = hs_match.group(1) if hs_match else "7325"
-    tariff_delta = float(pct_match.group(1)) if pct_match else 20.0
+    tariff = _TARIFF_PATTERN.search(text)
+    rate_range = _RANGE_PATTERN.search(text) if tariff or hs_match else None
+    affected_hs = hs_match.group(1) if hs_match else "UNKNOWN"
+    tariff_delta = (float(rate_range.group(2)) - float(rate_range.group(1)) if rate_range else
+                    float(pct_match.group(1)) if pct_match and tariff else 0.0)
     delay_days = int(delay_match.group(1) or delay_match.group(2)) if delay_match else 0
 
     lowered = text.casefold()
-    origin_country = "CN"
-    if "vietnam" in lowered:
+    origin_country = "UNKNOWN"
+    if "china" in lowered:
+        origin_country = "CN"
+    elif "vietnam" in lowered:
         origin_country = "VN"
     elif "germany" in lowered:
         origin_country = "DE"
@@ -76,11 +86,16 @@ def _extract_deterministic(alert_text: str) -> dict[str, Any]:
     elif "india" in lowered and "china" not in lowered:
         origin_country = "IN"
 
-    signal_type = "TARIFF_SHOCK"
-    if any(k in lowered for k in ("port", "congestion", "strike", "blockade", "delay")) and not pct_match:
+    if tariff or rate_range:
+        signal_type = "TARIFF_SHOCK"
+    elif delay_match or _LOGISTICS_PATTERN.search(text):
         signal_type = "LOGISTICS_DISRUPTION"
+    elif hs_match:
+        signal_type = "HS_REFERENCE"
+    else:
+        signal_type = "UNPARSED"
 
-    confidence = 0.85 if (hs_match or pct_match) else 0.55
+    confidence = 0.25 if signal_type == "UNPARSED" else 0.85 if hs_match or tariff and pct_match else 0.55
     return {
         "affectedHsCode": affected_hs,
         "originCountry": origin_country,
@@ -125,10 +140,11 @@ def _extract_with_gemini(alert_text: str, part_code: str) -> dict[str, Any] | No
         parsed = json.loads(raw)
         if not isinstance(parsed, dict):
             return None
+        tariff_delta = parsed.get("tariffDeltaPercent")
         return {
-            "affectedHsCode": str(parsed.get("affectedHsCode") or "7325"),
-            "originCountry": str(parsed.get("originCountry") or "CN")[:2].upper(),
-            "tariffDeltaPercent": float(parsed.get("tariffDeltaPercent") or 20.0),
+            "affectedHsCode": str(parsed.get("affectedHsCode") or "UNKNOWN"),
+            "originCountry": str(parsed.get("originCountry") or "UNKNOWN").upper(),
+            "tariffDeltaPercent": float(tariff_delta) if tariff_delta is not None else 0.0,
             "delayDays": int(parsed.get("delayDays") or 0),
             "signalType": str(parsed.get("signalType") or "TARIFF_SHOCK"),
             "confidence": float(parsed.get("confidence") or 0.8),
@@ -187,81 +203,86 @@ class DeepTierBrain:
 
     def _extract_disruption(self, state: DeepTierBrainState) -> dict[str, Any]:
         req = state["request"]
-        extracted = _extract_with_gemini(req.alertText, req.partCode)
-        if extracted is None:
-            extracted = _extract_deterministic(req.alertText)
+        extracted = _extract_deterministic(req.alertText)
+        if extracted["signalType"] != "UNPARSED":
+            extracted = _extract_with_gemini(req.alertText, req.partCode) or extracted
         return {"extracted": extracted}
 
     def _fetch_deterministic_math(self, state: DeepTierBrainState) -> dict[str, Any]:
         req = state["request"]
         extracted = state["extracted"]
+        if extracted["signalType"] == "UNPARSED":
+            return {"backend_status": "skipped", "warnings": ["Alert needs human review before simulation."]}
+
         client: DeepTierClient = self.client_factory()
         warnings: list[str] = []
         evidence_ids: list[str] = []
-
-        tier_map: dict[str, Any] | None = None
-        exposure: dict[str, Any] | None = None
-        cover: dict[str, Any] | None = None
-        whatif: dict[str, Any] | None = None
+        tariff_delta = extracted["tariffDeltaPercent"]
 
         annual_spend = req.annualSpendInr if req.annualSpendInr is not None else 4_800_000.0
         cost_fraction = req.costFraction if req.costFraction is not None else 0.60
         units_on_hand = req.unitsOnHand if req.unitsOnHand is not None else 300
         daily_demand = req.dailyDemand if req.dailyDemand is not None else 20
         base_lead = req.leadTimeDays if req.leadTimeDays is not None else 30
-        effective_lead = base_lead + int(extracted.get("delayDays") or 0)
+        effective_lead = base_lead + extracted["delayDays"]
         late_cost = req.lateCostPerDayInr if req.lateCostPerDayInr is not None else 80_000.0
 
-        calls_attempted = 4
-        calls_succeeded = 0
+        # Bound the Java-tool phase below the gateway's 8-second wait. Each
+        # running HTTP call also has its own timeout.
+        deadline = monotonic() + JAVA_TOOL_BUDGET_SECONDS
+        pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="deeptier-tools")
+        responses = {}
+
+        def collect(name, future):
+            try:
+                result = future.result(timeout=max(0, deadline - monotonic()))
+            except DeepTierClientError as exc:
+                warnings.append(f"{name} unavailable: {exc}")
+            except TimeoutError:
+                warnings.append(f"{name} unavailable: Java tool budget exceeded")
+            except Exception as exc:
+                warnings.append(f"{name} unavailable: {type(exc).__name__}")
+            else:
+                responses[name] = result
+                return result
+            return None
 
         try:
-            tier_map = client.get_tier_map()
-            calls_succeeded += 1
-            for node in tier_map.get("nodes") or []:
-                if isinstance(node, dict) and node.get("nodeId"):
-                    evidence_ids.append(str(node["nodeId"]))
-            for link in tier_map.get("links") or []:
-                if isinstance(link, dict) and link.get("hsCode") == extracted["affectedHsCode"]:
+            tier_task = pool.submit(client.get_tier_map)
+            cover_task = pool.submit(client.compute_cover, units_on_hand, daily_demand, effective_lead)
+            tier_map = collect("get_tier_map", tier_task)
+            if tier_map is not None:
+                for node in tier_map.get("nodes") or []:
+                    if isinstance(node, dict) and node.get("nodeId"):
+                        evidence_ids.append(str(node["nodeId"]))
+                for link in tier_map.get("links") or []:
+                    if not isinstance(link, dict) or link.get("hsCode") != extracted["affectedHsCode"]:
+                        continue
+                    for node_id in (link.get("from") or link.get("fromNodeId"),
+                                    link.get("to") or link.get("toNodeId")):
+                        if node_id and str(node_id) not in evidence_ids:
+                            evidence_ids.append(str(node_id))
                     if req.annualSpendInr is None and link.get("annualSpendInr") is not None:
                         annual_spend = float(link["annualSpendInr"])
                     if req.costFraction is None and link.get("costFraction") is not None:
                         cost_fraction = float(link["costFraction"])
-            evidence_ids.append(f"HS-{extracted['affectedHsCode']}")
-        except DeepTierClientError as exc:
-            warnings.append(f"get_tier_map unavailable: {exc}")
+                if extracted["affectedHsCode"] != "UNKNOWN":
+                    evidence_ids.append(f"HS-{extracted['affectedHsCode']}")
 
-        try:
-            exposure = client.compute_exposure(
-                annual_spend_inr=annual_spend,
-                cost_fraction=cost_fraction,
-                delta_percentage_points=float(extracted["tariffDeltaPercent"]),
-                evidence_ids=evidence_ids or [f"HS-{extracted['affectedHsCode']}"],
-            )
-            calls_succeeded += 1
-            for eid in exposure.get("evidenceIds") or []:
-                if str(eid) not in evidence_ids:
-                    evidence_ids.append(str(eid))
-        except DeepTierClientError as exc:
-            warnings.append(f"compute_exposure unavailable: {exc}")
-
-        try:
-            cover = client.compute_cover(
-                units_on_hand=units_on_hand,
-                daily_demand=daily_demand,
-                lead_time_days=effective_lead,
-            )
-            calls_succeeded += 1
-        except DeepTierClientError as exc:
-            warnings.append(f"compute_cover unavailable: {exc}")
-
-        try:
-            whatif = client.simulate_whatif(
-                {
+            exposure = {"dutyExposureInr": 0.0, "reason": "No tariff change to evaluate"} if tariff_delta == 0 else None
+            exposure_task = None
+            if tariff_delta != 0 and monotonic() < deadline:
+                exposure_task = pool.submit(
+                    client.compute_exposure, annual_spend_inr=annual_spend, cost_fraction=cost_fraction,
+                    delta_percentage_points=tariff_delta, evidence_ids=list(evidence_ids),
+                )
+            whatif_task = None
+            if monotonic() < deadline:
+                whatif_task = pool.submit(client.simulate_whatif, {
                     "scenarioId": state["scenario_id"],
                     "hsCode": extracted["affectedHsCode"],
                     "originCountry": extracted["originCountry"],
-                    "deltaPercentagePoints": int(round(float(extracted["tariffDeltaPercent"]))),
+                    "deltaPercentagePoints": tariff_delta,
                     "annualSpendInr": annual_spend,
                     "costFraction": cost_fraction,
                     "unitsOnHand": units_on_hand,
@@ -269,18 +290,24 @@ class DeepTierBrain:
                     "leadTimeDays": effective_lead,
                     "lateCostPerDayInr": late_cost,
                     "seed": 20261121,
-                }
-            )
-            calls_succeeded += 1
-        except DeepTierClientError as exc:
-            warnings.append(f"simulate_whatif unavailable: {exc}")
+                })
+            if exposure_task is not None:
+                exposure = collect("compute_exposure", exposure_task)
+                for eid in (exposure or {}).get("evidenceIds") or []:
+                    if str(eid) not in evidence_ids:
+                        evidence_ids.append(str(eid))
+            elif tariff_delta != 0:
+                warnings.append("compute_exposure unavailable: Java tool budget exceeded")
+            cover = collect("compute_cover", cover_task)
+            whatif = collect("simulate_whatif", whatif_task) if whatif_task else None
+            if whatif_task is None:
+                warnings.append("simulate_whatif unavailable: Java tool budget exceeded")
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
-        if calls_succeeded == calls_attempted:
-            backend_status = "connected"
-        elif calls_succeeded > 0:
-            backend_status = "partial"
-        else:
-            backend_status = "unreachable"
+        expected_calls = 3 if tariff_delta == 0 else 4
+        backend_status = ("connected" if len(responses) == expected_calls
+                          else "partial" if responses else "unreachable")
 
         return {
             "tier_map": tier_map,
@@ -301,7 +328,7 @@ class DeepTierBrain:
         evidence_ids = state.get("evidence_ids") or []
         backend_status = state.get("backend_status", "unreachable")
 
-        exposure_inr = exposure.get("exposureInr")
+        exposure_inr = exposure.get("dutyExposureInr", exposure.get("exposureInr"))
         days_of_cover = cover.get("daysOfCover")
         gap_days = cover.get("gapDays")
         recovery_options = whatif.get("recoveryOptions") or whatif.get("options") or []
@@ -319,7 +346,11 @@ class DeepTierBrain:
             "evidenceIds": evidence_ids,
         }
 
-        executive_brief = _synthesize_brief_with_gemini(brief_payload)
+        executive_brief = (
+            f"Human review is required for part {req.partCode}. The alert did not identify an HS or HSN code, "
+            "a tariff change, or a logistics disruption. No Java simulation was requested."
+            if extracted["signalType"] == "UNPARSED" else _synthesize_brief_with_gemini(brief_payload)
+        )
         if not executive_brief:
             if backend_status == "unreachable":
                 executive_brief = (
@@ -336,7 +367,9 @@ class DeepTierBrain:
                     f"Part {req.partCode} (HS {extracted['affectedHsCode']}, origin {extracted['originCountry']}) "
                     f"faces a {extracted['signalType']} (+{extracted['tariffDeltaPercent']}% tariff delta, "
                     f"{extracted['delayDays']}d delay) with dt-backend deterministic duty exposure of "
-                    f"INR {exposure_inr} and {days_of_cover} days of cover (gap {gap_days} days). "
+                    f"{f'INR {exposure_inr}' if exposure_inr is not None else 'unavailable'} and "
+                    f"{f'{days_of_cover} days of cover' if days_of_cover is not None else 'unavailable cover'} "
+                    f"(gap {gap_days if gap_days is not None else 'unknown'} days). "
                     f"Grounded in evidenceIds [{ev_str}]. "
                     f"Draft prepared for human approval in dt-backend; no external PO/RFQ was executed."
                 )

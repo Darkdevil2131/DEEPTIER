@@ -1,7 +1,11 @@
 import json
+from time import monotonic
 import httpx
+import pytest
+from threading import Event
+from types import SimpleNamespace
 
-from tradepilot.agents.deeptier_brain import DeepTierBrain
+from tradepilot.agents.deeptier_brain import DeepTierAnalyzeRequest, DeepTierBrain, _extract_with_gemini
 from tradepilot.deeptier_client import DeepTierClient
 
 
@@ -23,8 +27,8 @@ def _mock_java_transport(captured_calls: list[tuple[str, str, dict | None]]) -> 
                     ],
                     "links": [
                         {
-                            "fromNodeId": "NODE-T1-ALPHA",
-                            "toNodeId": "NODE-T2-BETA",
+                            "from": "NODE-T1-ALPHA",
+                            "to": "NODE-T2-BETA",
                             "hsCode": "7325",
                             "annualSpendInr": 4800000,
                             "costFraction": 0.60,
@@ -38,7 +42,7 @@ def _mock_java_transport(captured_calls: list[tuple[str, str, dict | None]]) -> 
                 200,
                 json={
                     "tool": "compute_exposure",
-                    "exposureInr": 576000.00,
+                    "dutyExposureInr": 576000.00,
                     "dataClass": "SYNTHETIC",
                     "evidenceIds": body.get("evidenceIds", []),
                     "formula": "annualSpendInr * costFraction * deltaPercentagePoints / 100",
@@ -52,6 +56,7 @@ def _mock_java_transport(captured_calls: list[tuple[str, str, dict | None]]) -> 
                     "unitsOnHand": 300,
                     "dailyDemand": 20,
                     "daysOfCover": 15.0,
+                    "daysOfCoverDisplay": "15.0",
                     "leadTimeDays": body["leadTimeDays"],
                     "gapDays": max(0, body["leadTimeDays"] - 15),
                     "dataClass": "SYNTHETIC",
@@ -105,15 +110,15 @@ def test_deeptier_analyze_with_mocked_java_and_internal_key(client, monkeypatch)
     assert data["extracted"]["extractionEngine"] == "deterministic_regex_fallback"
 
     # Verify all 4 Java endpoints were called
-    paths = [path for _, path, _ in captured]
-    assert paths == [
+    paths = {path: payload for _, path, payload in captured}
+    assert paths.keys() == {
         "/internal/tools/get_tier_map",
         "/internal/tools/compute_exposure",
         "/internal/tools/compute_cover",
         "/api/whatif/simulate",
-    ]
+    }
     # Delay days (14) + default base lead time (30) = 44
-    assert captured[2][2]["leadTimeDays"] == 44
+    assert paths["/internal/tools/compute_cover"]["leadTimeDays"] == 44
 
     # Verify grounded brief and approval draft use Java-computed numbers
     assert "NODE-T2-BETA" in data["evidenceIds"]
@@ -176,3 +181,107 @@ def test_deeptier_analyze_graceful_when_backend_unreachable(client, headers, mon
     assert data["approvalDraft"]["estimatedExposureInr"] is None
     assert data["approvalDraft"]["daysOfCover"] is None
     assert len(data["warnings"]) == 4
+
+
+@pytest.mark.parametrize(("alert", "delta", "signal"), [
+    ("Duty rises from 10% to 30% on HSN 7325 from India", 20.0, "TARIFF_SHOCK"),
+    ("12.5% tariff on HSN 7325 from India", 12.5, "TARIFF_SHOCK"),
+    ("0% tariff on HSN 7325 from India", 0.0, "TARIFF_SHOCK"),
+    ("HSN 7325 delayed by 4 days at port", 0.0, "LOGISTICS_DISRUPTION"),
+])
+def test_alert_shapes_reach_java_without_invented_tariffs(monkeypatch, alert, delta, signal):
+    monkeypatch.setenv("GEMINI_ENABLED", "false")
+    captured = []
+    brain = DeepTierBrain(lambda: DeepTierClient(
+        internal_key="java-internal-secret", transport=_mock_java_transport(captured)))
+    result = brain.analyze(DeepTierAnalyzeRequest(alertText=alert))
+    assert result["extracted"]["affectedHsCode"] == "7325"
+    assert result["extracted"]["tariffDeltaPercent"] == delta
+    assert result["extracted"]["signalType"] == signal
+    assert result["backendStatus"] == "connected"
+    paths = {path: payload for _, path, payload in captured}
+    assert paths["/api/whatif/simulate"]["deltaPercentagePoints"] == delta
+    if delta == 0.0:
+        assert "/internal/tools/compute_exposure" not in paths
+        assert result["approvalDraft"]["estimatedExposureInr"] == 0.0
+    else:
+        assert paths["/internal/tools/compute_exposure"]["deltaPercentagePoints"] == delta
+
+
+def test_unparsed_alert_requires_review_and_skips_java():
+    def unexpected_java_client():
+        pytest.fail("Unparsed alerts must not call Java tools")
+
+    result = DeepTierBrain(unexpected_java_client).analyze(DeepTierAnalyzeRequest(alertText="Please see attached."))
+    assert result["extracted"]["signalType"] == "UNPARSED"
+    assert result["extracted"]["affectedHsCode"] == "UNKNOWN"
+    assert result["extracted"]["tariffDeltaPercent"] == 0.0
+    assert result["extracted"]["confidence"] == 0.25
+    assert result["backendStatus"] == "skipped"
+    assert "Human review is required" in result["executiveBrief"]
+    assert result["approvalDraft"]["recommendedAction"] == "HUMAN_REVIEW_REQUIRED"
+
+
+def test_gemini_preserves_zero_tariff(monkeypatch):
+    from google import genai
+
+    monkeypatch.setenv("GEMINI_ENABLED", "true")
+    monkeypatch.setenv("GEMINI_API_KEY", "local-test-placeholder")
+    response = SimpleNamespace(text=json.dumps({"affectedHsCode": "7325", "tariffDeltaPercent": 0}))
+    monkeypatch.setattr(genai, "Client", lambda **_: SimpleNamespace(
+        models=SimpleNamespace(generate_content=lambda **_: response)))
+    assert _extract_with_gemini("0% tariff on HSN 7325", "HPH-1042")["tariffDeltaPercent"] == 0.0
+
+
+def test_cover_and_exposure_overlap():
+    cover_started, exposure_started = Event(), Event()
+
+    class JavaFixture:
+        def get_tier_map(self):
+            return {"links": [{"fromNodeId": "A", "toNodeId": "B", "hsCode": "7325"}]}
+
+        def compute_cover(self, *_):
+            cover_started.set()
+            assert exposure_started.wait(2)
+            return {"daysOfCover": 15}
+
+        def compute_exposure(self, **_):
+            exposure_started.set()
+            assert cover_started.wait(2)
+            return {"exposureInr": 576000}
+
+        def simulate_whatif(self, payload):
+            return {"scenarioId": payload["scenarioId"]}
+
+    result = DeepTierBrain(JavaFixture).analyze(DeepTierAnalyzeRequest(alertText="20% tariff on HSN 7325"))
+    assert result["backendStatus"] == "connected"
+    assert result["evidenceIds"] == ["A", "B", "HS-7325"]
+    assert result["approvalDraft"]["estimatedExposureInr"] == 576000
+
+
+def test_slow_java_tool_yields_partial_result_within_budget(monkeypatch):
+    from tradepilot.agents import deeptier_brain
+
+    monkeypatch.setattr(deeptier_brain, "JAVA_TOOL_BUDGET_SECONDS", .1)
+    release = Event()
+
+    class JavaFixture:
+        def get_tier_map(self):
+            return {}
+
+        def compute_cover(self, *_):
+            release.wait(3)
+            return {"daysOfCover": 15}
+
+        def simulate_whatif(self, _):
+            return {"recoveryOptions": []}
+
+    started = monotonic()
+    try:
+        result = DeepTierBrain(JavaFixture).analyze(DeepTierAnalyzeRequest(alertText="Port closure"))
+    finally:
+        release.set()
+    assert monotonic() - started < 2
+    assert result["backendStatus"] == "partial"
+    assert result["deterministicMath"]["cover"] is None
+    assert any("compute_cover" in warning and "budget exceeded" in warning for warning in result["warnings"])

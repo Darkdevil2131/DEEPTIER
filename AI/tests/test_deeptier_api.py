@@ -1,24 +1,17 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
-
-from tradepilot.main import app
-
-
-client = TestClient(app)
-
-
-def test_health_and_ready_endpoints(monkeypatch):
+def test_health_and_ready_endpoints(client, monkeypatch):
     monkeypatch.setenv("TRADEPILOT_API_KEY", "test-admin-key")
     assert client.get("/api/v1/health").status_code == 200
     assert client.get("/health").status_code == 200
     assert client.get("/api/v1/ready").status_code == 200
 
 
-def test_duplicate_erp_routes_are_unmounted():
+def test_duplicate_erp_routes_are_unmounted(client):
     for method, path in [
         ("POST", "/api/v1/rfqs"),
         ("POST", "/api/v1/rfqs/RFQ-1/dispatch"),
@@ -34,7 +27,7 @@ def test_duplicate_erp_routes_are_unmounted():
         assert res.status_code == 404, f"Expected 404 for {method} {path}, got {res.status_code}"
 
 
-def test_all_mounted_python_endpoints_covered(monkeypatch):
+def test_all_mounted_python_endpoints_covered(client, monkeypatch):
     monkeypatch.setenv("TRADEPILOT_API_KEY", "test-admin-key")
     monkeypatch.setenv("DEEPTIER_INTERNAL_KEY", "test-internal-key")
     auth = {"Authorization": "Bearer test-admin-key"}
@@ -45,9 +38,12 @@ def test_all_mounted_python_endpoints_covered(monkeypatch):
     assert "/api/v1/rfqs" not in openapi["paths"]
 
     # 2. DeepTier Brain analyze (mocked dt-backend)
-    with patch("tradepilot.agents.deeptier_brain.DeepTierClient.get_tier_map", return_value={"nodes": [{"id": "SUP-1"}]}), \
-         patch("tradepilot.agents.deeptier_brain.DeepTierClient.compute_exposure", return_value={"exposureInr": 576000}), \
-         patch("tradepilot.agents.deeptier_brain.DeepTierClient.compute_cover", return_value={"daysOfCover": 15.0, "gapDays": 15}), \
+    tier_map = {"nodes": [{"nodeId": "SUP-1"}], "links": [
+        {"from": "SUP-1", "to": "SUP-2", "hsCode": "7325", "annualSpendInr": 4800000, "costFraction": .6}
+    ]}
+    with patch("tradepilot.agents.deeptier_brain.DeepTierClient.get_tier_map", return_value=tier_map), \
+         patch("tradepilot.agents.deeptier_brain.DeepTierClient.compute_exposure", return_value={"dutyExposureInr": 576000}), \
+         patch("tradepilot.agents.deeptier_brain.DeepTierClient.compute_cover", return_value={"daysOfCover": 15.0, "daysOfCoverDisplay": "15.0", "gapDays": 15}), \
          patch("tradepilot.agents.deeptier_brain.DeepTierClient.simulate_whatif", return_value={"evidenceIds": ["EV-1"], "recoveryOptions": []}):
         res = client.post(
             "/api/v1/deeptier/analyze",
@@ -56,9 +52,10 @@ def test_all_mounted_python_endpoints_covered(monkeypatch):
         )
         assert res.status_code == 200
         assert res.json()["backendStatus"] == "connected"
+        assert res.json()["approvalDraft"]["estimatedExposureInr"] == 576000
+        assert "SUP-2" in res.json()["evidenceIds"]
 
     # 3. Shipments analyze, get, history, 404 & 422
-    import json
     sample = json.loads(Path("examples/analyze_shipment.json").read_text(encoding="utf-8"))
     r_ship = client.post("/api/v1/shipments/analyze", headers=auth, json=sample)
     assert r_ship.status_code == 200
@@ -104,3 +101,14 @@ def test_all_mounted_python_endpoints_covered(monkeypatch):
     assert client.get("/api/v1/audit", headers=auth).status_code == 200
     assert client.get("/api/v1/metrics", headers=auth).status_code == 200
     assert client.post("/api/v1/admin/backups", headers=auth).status_code == 200
+
+
+def test_shipments_accept_shared_key_without_a_bearer_key(client, monkeypatch):
+    monkeypatch.delenv("TRADEPILOT_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPTIER_INTERNAL_KEY", "local-shared-key")
+    sample = json.loads(Path("examples/analyze_shipment.json").read_text(encoding="utf-8"))
+    assert client.get("/api/v1/ready").status_code == 200
+    assert client.post("/api/v1/shipments/analyze", json=sample,
+                       headers={"X-Internal-Key": "incorrect"}).status_code == 401
+    assert client.post("/api/v1/shipments/analyze", json=sample,
+                       headers={"X-Internal-Key": "local-shared-key"}).status_code == 200

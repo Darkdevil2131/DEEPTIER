@@ -2,14 +2,26 @@
 
 Base URL locally: `http://127.0.0.1:8000`. The hosted base URL is unknown until an eligible deployment is provisioned.
 
-All endpoints except health require `Authorization: Bearer <API_KEY>`. Keep the API key in a backend secret store; do not ship it to a browser/mobile client.
+Java calls both analysis endpoints using `X-Internal-Key`. Existing trusted
+analyst bearer callers are also supported. Other protected endpoints use
+`Authorization: Bearer <API_KEY>`. Liveness, readiness, and API documentation
+are unauthenticated. Keep credentials in the backend.
+
+## Analyze a DeepTier disruption
+
+Call `POST /api/v1/deeptier/analyze` with `alertText`, optional `partCode`
+and `scenarioId`, and any known spend, inventory, lead-time, and delay-cost
+inputs. The response includes extracted parameters, Java tool results,
+evidence IDs, an executive brief, and a draft for human review. The brain
+reports unparsed alerts for human review. It sends fractional tariff changes
+without rounding and skips the duty exposure tool when the tariff change is zero.
 
 ## Analyze shipment
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/shipments/analyze \
   -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer YOUR_LOCAL_API_KEY' \
+  -H "X-Internal-Key: $DEEPTIER_INTERNAL_KEY" \
   --data @examples/analyze_shipment.json
 ```
 
@@ -76,24 +88,14 @@ curl -X POST "$BASE_URL/api/v1/documents/extract" \
 ```
 
 Use `/api/v1/documents/process` for a background job and poll
-`/api/v1/jobs/{job_id}`. The response contains extracted text/tables, OCR status,
-SHA-256, visible signature/stamp indicators and PDF signature fields. The
-authenticity status is intentionally `not_verified`; these indicators are not
-proof of identity or document validity.
+`/api/v1/jobs/{job_id}`. The response includes integrity metadata and
+available embedded PDF text and tables. Authenticity is reported as
+`not_verified`.
 
 ## Commercial workflow
 
-1. `POST /api/v1/rfqs` creates a draft.
-2. `POST /api/v1/rfqs/{id}/dispatch` queues internal delivery records.
-3. `POST /api/v1/rfqs/{id}/responses` records an invited carrier response.
-4. `POST /api/v1/approvals` records an approver's decision.
-5. `POST /api/v1/bookings` creates an approval-linked dry-run booking intent.
-6. `POST /api/v1/bookings/{id}/tracking` appends provenance-labelled events.
-7. `POST /api/v1/purchase-orders` creates an approval-referenced draft PO.
-
-SMTP delivery requires explicit environment configuration and an operator call
-to `/api/v1/notifications/{id}/send`. External carrier booking and ERP writes
-are not included and return a safe failure instead of pretending success.
+Python returns recommendations and approval drafts. Java handles approvals,
+mock RFQs, audit records, and ERP payload generation.
 
 ## Roles and operational endpoints
 
