@@ -1,6 +1,7 @@
 package com.deeptier.api;
 
 import com.deeptier.config.DeepTierProperties;
+import com.deeptier.security.AppUserRepository;
 import com.deeptier.seed.SeedGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +29,7 @@ class AuthAndSapPushIntegrationTest {
     @Autowired ObjectMapper mapper;
     @Autowired SeedGenerator seedGenerator;
     @Autowired DeepTierProperties props;
+    @Autowired AppUserRepository appUserRepo;
 
     @BeforeEach
     void setUp() {
@@ -47,6 +49,10 @@ class AuthAndSapPushIntegrationTest {
 
     @Test
     void jwtLoginRbacSelfApprovalAndSimulatedSapPushWorkEndToEnd() throws Exception {
+        // 0. Seeded users are persisted in the app_user table
+        org.junit.jupiter.api.Assertions.assertTrue(appUserRepo.count() >= 3);
+        org.junit.jupiter.api.Assertions.assertTrue(appUserRepo.findByUsernameIgnoreCase("analyst@deeptier.local").isPresent());
+
         // 1. Unauthenticated access to protected /api/** -> 401
         mvc.perform(get("/api/tier-map/graph")).andExpect(status().isUnauthorized());
 
