@@ -6,14 +6,14 @@ class GeminiNarrator:
     def __init__(self):
         self.enabled=os.getenv("GEMINI_ENABLED","false").strip().lower()=="true"
         self.api_key=os.getenv("GEMINI_API_KEY")
-        self.model=os.getenv("GEMINI_MODEL","gemini-2.5-flash")
+        self.model=os.getenv("GEMINI_MODEL","gemini-3.8-flash")
     def narrate(self,agent_results:dict)->dict:
         if not self.enabled: return {"status":"disabled","message":"Offline deterministic mode; Gemini is disabled."}
         if not self.api_key: return {"status":"unavailable","message":"Gemini is enabled but GEMINI_API_KEY is not configured."}
         try:
             from google import genai
             from google.genai import types
-            client=genai.Client(api_key=self.api_key,http_options=types.HttpOptions(timeout=int(os.getenv("GEMINI_TIMEOUT_MS","5000"))))
+            client=genai.Client(api_key=self.api_key,http_options=types.HttpOptions(timeout=max(10000,int(os.getenv("GEMINI_TIMEOUT_MS","10000")))))
             prompt=("Write an operational shipment summary in at most 3 concise sentences using only the supplied JSON. "
                     "The first sentence must start with the exact workflow decision status and state whether approval is blocked. "
                     "When blocked, lead with every blocked gate and required action; describe route candidates only as alternatives, never as a recommendation. "

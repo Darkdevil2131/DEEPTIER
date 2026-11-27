@@ -124,7 +124,7 @@ def test_gemini_prompt_leads_with_blocked_decision(monkeypatch):
     result = GeminiNarrator().narrate(evidence)
 
     assert result["status"] == "completed"
-    assert result["model"] == "gemini-2.5-flash"
+    assert result["model"] == "gemini-3.8-flash"
     prompt = captured["contents"]
     assert "first sentence must start with the exact workflow decision status" in prompt
     assert prompt.index('"workflow_decision"') < prompt.index('"specialists"')

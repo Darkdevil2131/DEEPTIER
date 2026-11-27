@@ -15,4 +15,4 @@
   bypass, workflow-state manipulation, audit integrity and backup exposure.
 
 Report vulnerabilities privately to the repository owner. Do not include live
-credentials, personal data or exploitation details in a public issue.
+credentials, personal data or exploitation details in a public issue. 1

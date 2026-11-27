@@ -74,6 +74,15 @@ def test_readiness_checks_auth_storage_and_bypasses_client_quota(client, monkeyp
 
 
 def test_example_key_cannot_activate_service(client, monkeypatch):
+    for var in (
+        "TRADEPILOT_VIEWER_KEY",
+        "TRADEPILOT_ANALYST_KEY",
+        "TRADEPILOT_OPERATOR_KEY",
+        "TRADEPILOT_APPROVER_KEY",
+        "TRADEPILOT_ADMIN_KEY",
+        "DEEPTIER_INTERNAL_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
     placeholder = "replace-with-a-long-random-secret"
     monkeypatch.setenv("TRADEPILOT_API_KEY", placeholder)
     assert client.get("/api/v1/ready").status_code == 503

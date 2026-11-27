@@ -7,8 +7,11 @@ and synthesizes a grounded executiveBrief + approvalDraft for human-in-the-loop 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+
+logger = logging.getLogger("tradepilot.deeptier_brain")
 from concurrent.futures import ThreadPoolExecutor
 from time import monotonic
 from typing import Any, TypedDict
@@ -108,20 +111,44 @@ def _extract_deterministic(alert_text: str) -> dict[str, Any]:
     }
 
 
+def _generate_gemini_content(client: Any, types: Any, model: str, prompt: str) -> Any:
+    config_kwargs: dict[str, Any] = {"temperature": 0, "max_output_tokens": 1024}
+    if hasattr(types, "ThinkingConfig"):
+        try:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        except Exception:
+            pass
+    try:
+        return client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(**config_kwargs),
+        )
+    except Exception as exc:
+        if "thinking_config" in config_kwargs and "INVALID_ARGUMENT" in str(exc):
+            config_kwargs.pop("thinking_config", None)
+            return client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
+        raise
+
+
 def _extract_with_gemini(alert_text: str, part_code: str) -> dict[str, Any] | None:
     if os.getenv("GEMINI_ENABLED", "false").strip().lower() != "true":
         return None
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return None
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     try:
         from google import genai
         from google.genai import types
 
         client = genai.Client(
             api_key=api_key,
-            http_options=types.HttpOptions(timeout=int(os.getenv("GEMINI_TIMEOUT_MS", "5000"))),
+            http_options=types.HttpOptions(timeout=max(10000, int(os.getenv("GEMINI_TIMEOUT_MS", "10000")))),
         )
         prompt = (
             "Extract structured disruption parameters from the supply chain alert. "
@@ -130,17 +157,7 @@ def _extract_with_gemini(alert_text: str, part_code: str) -> dict[str, Any] | No
             "signalType (string, e.g. TARIFF_SHOCK or LOGISTICS_DISRUPTION), confidence (0..1 float). "
             f"PartCode={part_code}\nAlert={alert_text}"
         )
-        config_kwargs: dict[str, Any] = {"temperature": 0, "max_output_tokens": 1024}
-        if hasattr(types, "ThinkingConfig"):
-            try:
-                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-            except Exception:
-                pass
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(**config_kwargs),
-        )
+        response = _generate_gemini_content(client, types, model, prompt)
         raw = (response.text or "").strip()
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.DOTALL).strip()
@@ -157,7 +174,8 @@ def _extract_with_gemini(alert_text: str, part_code: str) -> dict[str, Any] | No
             "confidence": float(parsed.get("confidence") or 0.8),
             "extractionEngine": f"gemini:{model}",
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("Gemini extraction failed (%s): %s", type(exc).__name__, exc)
         return None
 
 
@@ -167,14 +185,14 @@ def _synthesize_brief_with_gemini(payload: dict[str, Any]) -> str | None:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return None
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     try:
         from google import genai
         from google.genai import types
 
         client = genai.Client(
             api_key=api_key,
-            http_options=types.HttpOptions(timeout=int(os.getenv("GEMINI_TIMEOUT_MS", "5000"))),
+            http_options=types.HttpOptions(timeout=max(10000, int(os.getenv("GEMINI_TIMEOUT_MS", "10000")))),
         )
         prompt = (
             "Write a concise 3-sentence executive brief using ONLY the supplied deterministic JSON. "
@@ -182,20 +200,11 @@ def _synthesize_brief_with_gemini(payload: dict[str, Any]) -> str | None:
             "that human approval is required in dt-backend before execution.\nJSON="
             + json.dumps(payload, default=str)
         )
-        config_kwargs: dict[str, Any] = {"temperature": 0, "max_output_tokens": 1024}
-        if hasattr(types, "ThinkingConfig"):
-            try:
-                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-            except Exception:
-                pass
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(**config_kwargs),
-        )
+        response = _generate_gemini_content(client, types, model, prompt)
         text = (response.text or "").strip()
         return text or None
-    except Exception:
+    except Exception as exc:
+        logger.warning("Gemini brief synthesis failed (%s): %s", type(exc).__name__, exc)
         return None
 
 

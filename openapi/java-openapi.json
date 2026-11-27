@@ -278,7 +278,7 @@
       "post" : {
         "tags" : [ "Seed" ],
         "summary" : "Reset to seed scenario",
-        "description" : "Wipes all data and loads the deterministic Hydraulic Pump Housing demo. Use seed=20261121 for the official Hackfest demo.",
+        "description" : "Wipes all data and loads the deterministic Hydraulic Pump Housing demo. Use seed=20261121 for the official Hackfest demo. Gated by deeptier.demo.reset-enabled.",
         "operationId" : "reset",
         "parameters" : [ {
           "name" : "seed",
@@ -624,6 +624,26 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/TierMapGraphResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/import/template" : {
+      "get" : {
+        "tags" : [ "Supply Chain" ],
+        "summary" : "Download sample CSV template",
+        "description" : "Returns a valid text/csv template matching the 14 required onboarding columns.",
+        "operationId" : "downloadTemplate",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "text/csv" : {
+                "schema" : {
+                  "type" : "string"
                 }
               }
             }
@@ -1470,6 +1490,12 @@
           "targetSupplierId" : {
             "type" : "string"
           },
+          "unitCostInr" : {
+            "type" : "number"
+          },
+          "estimatedLandedCostInr" : {
+            "type" : "number"
+          },
           "freightCostInr" : {
             "type" : "number"
           },
@@ -1664,6 +1690,34 @@
           }
         }
       },
+      "CarrierQuoteInput" : {
+        "required" : [ "amount", "carrierId", "mode" ],
+        "type" : "object",
+        "properties" : {
+          "carrierId" : {
+            "type" : "string"
+          },
+          "mode" : {
+            "type" : "string"
+          },
+          "amount" : {
+            "type" : "number"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "transitHours" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "quotedCapacityKg" : {
+            "type" : "number"
+          },
+          "includesInsurance" : {
+            "type" : "boolean"
+          }
+        }
+      },
       "DisruptionInput" : {
         "required" : [ "signalId" ],
         "type" : "object",
@@ -1700,6 +1754,24 @@
             "minimum" : 0.0,
             "exclusiveMinimum" : false,
             "type" : "number"
+          }
+        }
+      },
+      "DocumentInput" : {
+        "required" : [ "documentType" ],
+        "type" : "object",
+        "properties" : {
+          "documentType" : {
+            "type" : "string"
+          },
+          "fields" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "object"
+            }
+          },
+          "rawText" : {
+            "type" : "string"
           }
         }
       },
@@ -1772,6 +1844,31 @@
           },
           "impactScenario" : {
             "$ref" : "#/components/schemas/ImpactScenarioInput"
+          },
+          "documents" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/DocumentInput"
+            }
+          },
+          "declaredValueUsd" : {
+            "minimum" : 0.0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          },
+          "incoterm" : {
+            "maxLength" : 20,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "carrierQuotes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/CarrierQuoteInput"
+            }
+          },
+          "useDemoDefaults" : {
+            "type" : "boolean"
           }
         }
       },
@@ -1802,6 +1899,12 @@
             "type" : "string"
           },
           "status" : {
+            "type" : "string"
+          },
+          "feasible" : {
+            "type" : "boolean"
+          },
+          "decisionStatus" : {
             "type" : "string"
           },
           "selectedRoute" : {
@@ -2174,6 +2277,9 @@
               "type" : "string"
             }
           },
+          "simulationSkipped" : {
+            "type" : "boolean"
+          },
           "executiveBrief" : {
             "type" : "string"
           },
@@ -2519,10 +2625,10 @@
             "type" : "string",
             "format" : "date-time"
           },
-          "prevHash" : {
+          "hash" : {
             "type" : "string"
           },
-          "hash" : {
+          "prevHash" : {
             "type" : "string"
           }
         }
