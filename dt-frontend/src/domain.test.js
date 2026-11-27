@@ -7,3 +7,5 @@ test('ready decision requires both statuses and candidate',()=>assert.equal(deci
 test('chain does not silently join disconnected legs',()=>assert.equal(chainContinuous([{fromHub:'A',toHub:'B',mode:'road'},{fromHub:'C',toHub:'D',mode:'rail'}]),false));
 test('mixed query surfaces multiple capabilities',()=>assert.deepEqual(classifyQuery('port closure supplier inventory SAP'),['transport','network','disruption','finance','sap']));
 test('missing cost is not zero',()=>assert.equal(money(null),'Unavailable'));
+
+test('missing gate list fails closed',()=>assert.equal(decisionReady({feasible:true,selectedRoute:{feasible:true},decisionStatus:'ready_for_human_approval',decision:{status:'ready_for_human_approval',recommendedOption:'a'}}),false));
