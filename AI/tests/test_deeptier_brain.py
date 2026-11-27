@@ -285,3 +285,16 @@ def test_slow_java_tool_yields_partial_result_within_budget(monkeypatch):
     assert result["backendStatus"] == "partial"
     assert result["deterministicMath"]["cover"] is None
     assert any("compute_cover" in warning and "budget exceeded" in warning for warning in result["warnings"])
+
+
+def test_customs_delay_classifies_as_logistics_and_extracts_delay():
+    from tradepilot.agents.deeptier_brain import _extract_deterministic
+
+    extracted = _extract_deterministic("Customs delay of 3 days at Chennai port")
+    assert extracted["signalType"] == "LOGISTICS_DISRUPTION"
+    assert extracted["delayDays"] == 3
+    assert extracted["tariffDeltaPercent"] == 0.0
+
+    # "customs" alone without rate or logistics evidence must not trigger TARIFF_SHOCK
+    bare_customs = _extract_deterministic("Customs inspection notice")
+    assert bare_customs["signalType"] == "UNPARSED"

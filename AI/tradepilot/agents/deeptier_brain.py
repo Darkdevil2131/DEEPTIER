@@ -54,7 +54,7 @@ _PCT_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|percent|percentage\s*points?)
 _RANGE_PATTERN = re.compile(r"\bfrom\s+(\d+(?:\.\d+)?)\s*(?:%|percent)\s+to\s+(\d+(?:\.\d+)?)\s*(?:%|percent)", re.IGNORECASE)
 _TARIFF_PATTERN = re.compile(r"\b(?:tariffs?|dut(?:y|ies)|levy|customs)\b", re.IGNORECASE)
 _DELAY_PATTERN = re.compile(
-    r"(?:delay(?:ed)?(?:\s+by)?\s*|lead\s*time\s*\+?\s*)(\d+)\s*days?\b|\b(\d+)\s*days?\s*(?:[a-z]+\s+){0,2}(?:delay|stoppage|lead)",
+    r"(?:delay(?:ed)?(?:\s+(?:by|of))?\s*|lead\s*time\s*\+?\s*)(\d+)\s*days?\b|\b(\d+)\s*days?\s*(?:[a-z]+\s+){0,2}(?:delay|stoppage|lead)",
     re.IGNORECASE,
 )
 _LOGISTICS_PATTERN = re.compile(r"\b(?:congestion|strike|blockade|delay(?:ed|s)?|stoppage|port\s+closure)\b", re.IGNORECASE)
@@ -86,7 +86,8 @@ def _extract_deterministic(alert_text: str) -> dict[str, Any]:
     elif "india" in lowered and "china" not in lowered:
         origin_country = "IN"
 
-    if tariff or rate_range:
+    has_rate = bool(rate_range or pct_match)
+    if rate_range or (tariff and has_rate):
         signal_type = "TARIFF_SHOCK"
     elif delay_match or _LOGISTICS_PATTERN.search(text):
         signal_type = "LOGISTICS_DISRUPTION"
