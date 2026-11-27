@@ -19,7 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class DisruptionAgentControllerTest {
 
     @Test
-    void analyzeDisruptionReturnsTypedResponseAndValidatesBlankAlert() throws Exception {
+    void analyzeDisruptionReturnsTypedResponseAndValidatesInputs() throws Exception {
         DisruptionAgentService stubService = new DisruptionAgentService(null, null, null, null) {
             @Override
             public AnalyzeDisruptionResponse analyzeDisruption(AnalyzeDisruptionRequest request) {
@@ -27,6 +27,7 @@ class DisruptionAgentControllerTest {
                         "EV-1", "SCEN-1", "HPH-1042", "7325", "CN",
                         BigDecimal.valueOf(20), 5, "TARIFF_SHOCK",
                         BigDecimal.valueOf(0.85), "JAVA_DETERMINISTIC_FALLBACK",
+                        "fallback", List.of("Fallback warning"),
                         "Grounded brief", List.of("EV-1"), null, Instant.now());
             }
         };
@@ -41,11 +42,19 @@ class DisruptionAgentControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.eventId").value("EV-1"))
                 .andExpect(jsonPath("$.affectedHsCode").value("7325"))
+                .andExpect(jsonPath("$.backendStatus").value("fallback"))
+                .andExpect(jsonPath("$.warnings[0]").value("Fallback warning"))
                 .andExpect(jsonPath("$.extractionEngine").value("JAVA_DETERMINISTIC_FALLBACK"));
 
         mvc.perform(post("/api/agent/analyze-disruption")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"alertText\":\"   \"}"))
                 .andExpect(status().isBadRequest());
+
+        mvc.perform(post("/api/agent/analyze-disruption")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{bad json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_JSON"));
     }
 }

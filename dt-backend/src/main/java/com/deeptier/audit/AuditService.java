@@ -59,7 +59,31 @@ public class AuditService {
         if (scenarioId != null && !scenarioId.isBlank()) {
             return auditRepo.findByScenarioIdOrderByOccurredAtAsc(scenarioId);
         }
-        return auditRepo.findAll();
+        return auditRepo.findAllByOrderByOccurredAtAsc();
+    }
+
+    public record AuditVerifyResponse(
+            boolean valid,
+            int totalEvents,
+            String brokenAtEventId
+    ) {}
+
+    @Transactional(readOnly = true)
+    public AuditVerifyResponse verifyChain() {
+        List<AuditEvent> events = auditRepo.findAllByOrderByOccurredAtAsc();
+        String expectedBefore = "0";
+        for (AuditEvent ev : events) {
+            if (!expectedBefore.equals(ev.getBeforeHash())) {
+                return new AuditVerifyResponse(false, events.size(), ev.getId());
+            }
+            String payload = ev.getPayload() != null ? ev.getPayload() : "{}";
+            String recomputed = computeSha256(expectedBefore + payload);
+            if (!recomputed.equals(ev.getAfterHash())) {
+                return new AuditVerifyResponse(false, events.size(), ev.getId());
+            }
+            expectedBefore = ev.getAfterHash();
+        }
+        return new AuditVerifyResponse(true, events.size(), null);
     }
 
     private static String computeSha256(String input) {

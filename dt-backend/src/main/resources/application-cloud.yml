@@ -8,4 +8,4 @@ spring:
 
 deeptier:
   internal:
-    key: ${DEEP_TIER_INTERNAL_KEY:dt-internal-dev-key-2026}
+    key: ${DEEPTIER_INTERNAL_KEY:${DEEP_TIER_INTERNAL_KEY:dt-internal-dev-key-2026}}

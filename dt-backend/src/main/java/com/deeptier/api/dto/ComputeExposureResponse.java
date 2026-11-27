@@ -14,6 +14,6 @@ public record ComputeExposureResponse(
     public record ExposureInputs(
             BigDecimal annualSpendInr,
             BigDecimal costFraction,
-            Integer deltaPercentagePoints
+            BigDecimal deltaPercentagePoints
     ) {}
 }

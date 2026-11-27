@@ -23,5 +23,19 @@ public record CreateApprovalRequest(
 
         Integer estimatedLeadTimeDays,
 
-        String requestedBy
-) {}
+        String requestedBy,
+
+        String scenarioId
+) {
+    public CreateApprovalRequest(
+            String partCode,
+            String sourceSupplierId,
+            String targetSupplierId,
+            Integer recommendedQty,
+            BigDecimal estimatedLandedCost,
+            Integer estimatedLeadTimeDays,
+            String requestedBy) {
+        this(partCode, sourceSupplierId, targetSupplierId, recommendedQty,
+                estimatedLandedCost, estimatedLeadTimeDays, requestedBy, null);
+    }
+}

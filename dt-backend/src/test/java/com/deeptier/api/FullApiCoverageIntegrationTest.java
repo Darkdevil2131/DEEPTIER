@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -26,8 +27,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class FullApiCoverageIntegrationTest {
-
-    private static final String INTERNAL_KEY = "dt-internal-dev-key-2026";
 
     @Autowired
     private MockMvc mvc;
@@ -55,6 +54,7 @@ class FullApiCoverageIntegrationTest {
                 "/api/supply-chain/import/csv",
                 "/api/whatif/simulate",
                 "/api/agent/analyze-disruption",
+                "/api/logistics/reroute",
                 "/api/approvals",
                 "/api/approvals/{id}",
                 "/api/approvals/{id}/approve",
@@ -64,6 +64,7 @@ class FullApiCoverageIntegrationTest {
                 "/api/audit",
                 "/api/audit/events",
                 "/api/audit/events/scenario/{scenarioId}",
+                "/api/audit/verify",
                 "/internal/tools/compute_exposure",
                 "/internal/tools/compute_cover",
                 "/internal/tools/classify_signal",
@@ -88,25 +89,52 @@ class FullApiCoverageIntegrationTest {
         mvc.perform(get("/api/tier-map/links")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(4));
         mvc.perform(get("/api/tier-map/graph")).andExpect(status().isOk()).andExpect(jsonPath("$.nodes.length()").value(5));
 
-        // 3. What-If & Disruption Agent (deterministic fallback when Python offline)
-        mvc.perform(post("/api/whatif/simulate")
+        // 3. What-If (verify Rank 1 is vetted supplier SUP-RJK-CAST + 0% / 12.5% decimal tariffs)
+        MvcResult simRes = mvc.perform(post("/api/whatif/simulate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"hsCode\":\"7325\",\"deltaPercentagePoints\":20}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.tariffShock.totalExposureInr").exists());
+                .andExpect(jsonPath("$.tariffShock.totalExposureInr").exists())
+                .andExpect(jsonPath("$.recoveryOptions[0].targetSupplierId").value("SUP-RJK-CAST"))
+                .andExpect(jsonPath("$.recoveryOptions[0].recommended").value(true))
+                .andReturn();
+        String rank1Supplier = mapper.readTree(simRes.getResponse().getContentAsString())
+                .path("recoveryOptions").get(0).path("targetSupplierId").asText();
+        assertEquals("SUP-RJK-CAST", rank1Supplier);
 
+        mvc.perform(post("/api/whatif/simulate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hsCode\":\"7325\",\"deltaPercentagePoints\":12.5}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tariffShock.deltaPercentagePoints").value(12.5));
+
+        mvc.perform(post("/api/whatif/simulate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hsCode\":\"7325\",\"deltaPercentagePoints\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tariffShock.totalExposureInr").value(0));
+
+        // 4. Disruption Agent (deterministic fallback when Python offline)
         mvc.perform(post("/api/agent/analyze-disruption")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"alertText\":\"20% tariff hike on HS 7325 castings from China with 5 days delay\",\"partCode\":\"HPH-1042\",\"scenarioId\":\"SCEN-E2E\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.affectedHsCode").value("7325"))
+                .andExpect(jsonPath("$.backendStatus").value("fallback"))
                 .andExpect(jsonPath("$.simulation.tariffShock.totalExposureInr").exists());
 
-        // 4. Approval -> Approve -> RFQ -> SAP Payload
+        // Malformed JSON -> 400
+        mvc.perform(post("/api/agent/analyze-disruption")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{invalid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_JSON"));
+
+        // 5. Rank-1 SUP-RJK-CAST -> Approval -> Approve -> RFQ -> SAP Payload
         MvcResult createRes = mvc.perform(post("/api/approvals")
                         .header("Idempotency-Key", "IDEMP-FULL-1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"partCode\":\"HPH-1042\",\"sourceSupplierId\":\"SUP-NGB-BETA\",\"targetSupplierId\":\"SUP-RJK-CAST\",\"recommendedQty\":300,\"estimatedLandedCost\":720000,\"estimatedLeadTimeDays\":10}"))
+                        .content("{\"partCode\":\"HPH-1042\",\"sourceSupplierId\":\"SUP-NGB-BETA\",\"targetSupplierId\":\"" + rank1Supplier + "\",\"recommendedQty\":300,\"estimatedLandedCost\":518000,\"estimatedLeadTimeDays\":4,\"scenarioId\":\"SCEN-E2E\"}"))
                 .andExpect(status().isCreated())
                 .andReturn();
         String approvalId = mapper.readTree(createRes.getResponse().getContentAsString()).path("id").asText();
@@ -130,16 +158,32 @@ class FullApiCoverageIntegrationTest {
                 .andExpect(jsonPath("$.payload.PurchaseRequisitionType").value("NB"));
         mvc.perform(get("/api/rfqs/RFQ-MISSING/sap-payload")).andExpect(status().isNotFound());
 
-        // 5. Audit endpoints
+        // 6. Audit endpoints + SHA-256 chain verify
         mvc.perform(get("/api/audit")).andExpect(status().isOk());
         mvc.perform(get("/api/audit/events")).andExpect(status().isOk());
         mvc.perform(get("/api/audit/events/scenario/SCEN-E2E")).andExpect(status().isOk());
+        mvc.perform(get("/api/audit/verify"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.valid").value(true));
 
-        // 6. Internal Tools endpoints (401 without key, 200 with key)
+        // 7. Internal Tools endpoints (401 without key, 200 with key, 0% & 12.5% decimals, live tier map)
         String activeInternalKey = props.internal().key();
         mvc.perform(get("/internal/tools/get_tier_map")).andExpect(status().isUnauthorized());
         mvc.perform(get("/internal/tools/get_tier_map").header("X-Internal-Key", activeInternalKey))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nodes.length()").value(5));
+        mvc.perform(post("/internal/tools/compute_exposure")
+                        .header("X-Internal-Key", activeInternalKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"annualSpendInr\":4800000,\"costFraction\":0.60,\"deltaPercentagePoints\":12.5}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dutyExposureInr").value(360000.0));
+        mvc.perform(post("/internal/tools/compute_exposure")
+                        .header("X-Internal-Key", activeInternalKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"annualSpendInr\":4800000,\"costFraction\":0.60,\"deltaPercentagePoints\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dutyExposureInr").value(0));
         mvc.perform(post("/internal/tools/classify_signal")
                         .header("X-Internal-Key", activeInternalKey)
                         .contentType(MediaType.APPLICATION_JSON)

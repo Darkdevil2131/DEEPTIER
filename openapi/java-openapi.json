@@ -44,6 +44,9 @@
     "name" : "Internal Tools (AI)",
     "description" : "Deterministic math endpoints for AI agent consumption. Protected by X-Internal-Key. AI classifies signals; Java computes all numbers."
   }, {
+    "name" : "Logistics Routing",
+    "description" : "57-hub India road & multimodal rerouting proxy via Python TradePilot"
+  }, {
     "name" : "Disruption Agent",
     "description" : "Hybrid AI + deterministic Java disruption analysis"
   }, {
@@ -301,6 +304,36 @@
         }
       }
     },
+    "/api/logistics/reroute" : {
+      "post" : {
+        "tags" : [ "Logistics Routing" ],
+        "summary" : "Compute 57-hub multimodal reroute",
+        "description" : "Validates shipment request via typed Java DTOs and proxies to TradePilot's 57-hub India road/multimodal graph on Python :8000 with an 8s bounded timeout.",
+        "operationId" : "reroute",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RerouteRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RerouteResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/approvals" : {
       "get" : {
         "tags" : [ "Approval" ],
@@ -515,7 +548,7 @@
       "get" : {
         "tags" : [ "Internal Tools (AI)" ],
         "summary" : "Get supplier tier map for AI context",
-        "description" : "Returns a lightweight graph for AI agent context injection. AI uses nodeIds/linkTypes as evidenceIds in its explanations.",
+        "description" : "Returns the live supplier graph from the database (or canonical fallback if empty) for AI agent context injection. AI uses nodeIds/linkTypes as evidenceIds.",
         "operationId" : "getTierMap",
         "responses" : {
           "200" : {
@@ -679,6 +712,25 @@
                   "items" : {
                     "$ref" : "#/components/schemas/AuditEvent"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit/verify" : {
+      "get" : {
+        "tags" : [ "Audit" ],
+        "summary" : "Verify integrity of the SHA-256 hash-chained audit log",
+        "operationId" : "verify",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AuditVerifyResponse"
                 }
               }
             }
@@ -1048,8 +1100,9 @@
             "type" : "number"
           },
           "deltaPercentagePoints" : {
-            "type" : "integer",
-            "format" : "int32"
+            "minimum" : 0.0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
           },
           "evidenceIds" : {
             "type" : "array",
@@ -1095,8 +1148,7 @@
             "type" : "number"
           },
           "deltaPercentagePoints" : {
-            "type" : "integer",
-            "format" : "int32"
+            "type" : "number"
           }
         }
       },
@@ -1221,8 +1273,9 @@
             "type" : "string"
           },
           "deltaPercentagePoints" : {
-            "type" : "integer",
-            "format" : "int32"
+            "minimum" : 0.0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
           },
           "annualSpendInr" : {
             "type" : "number"
@@ -1412,6 +1465,9 @@
             "type" : "string"
           },
           "modeChain" : {
+            "type" : "string"
+          },
+          "targetSupplierId" : {
             "type" : "string"
           },
           "freightCostInr" : {
@@ -1608,6 +1664,265 @@
           }
         }
       },
+      "DisruptionInput" : {
+        "required" : [ "signalId" ],
+        "type" : "object",
+        "properties" : {
+          "signalId" : {
+            "type" : "string"
+          },
+          "affectedModes" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "affectedLocations" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "affectedLegIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "severity" : {
+            "maximum" : 1.0,
+            "exclusiveMaximum" : false,
+            "minimum" : 0.0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          },
+          "delayHours" : {
+            "minimum" : 0.0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          }
+        }
+      },
+      "ImpactScenarioInput" : {
+        "required" : [ "criticalWeightKg", "dailyStoppageInr", "targetDays" ],
+        "type" : "object",
+        "properties" : {
+          "criticalWeightKg" : {
+            "type" : "number"
+          },
+          "targetDays" : {
+            "type" : "number"
+          },
+          "dailyStoppageInr" : {
+            "minimum" : 0.0,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          },
+          "closedLegIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "freightMultiplier" : {
+            "minimum" : 0.1,
+            "exclusiveMinimum" : false,
+            "type" : "number"
+          }
+        }
+      },
+      "RerouteRequest" : {
+        "required" : [ "allowedModes", "cargoDescription", "destination", "origin", "weightKg" ],
+        "type" : "object",
+        "properties" : {
+          "shipmentId" : {
+            "maxLength" : 80,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "origin" : {
+            "maxLength" : 100,
+            "minLength" : 2,
+            "type" : "string"
+          },
+          "destination" : {
+            "maxLength" : 100,
+            "minLength" : 2,
+            "type" : "string"
+          },
+          "cargoDescription" : {
+            "maxLength" : 500,
+            "minLength" : 2,
+            "type" : "string"
+          },
+          "weightKg" : {
+            "type" : "number"
+          },
+          "allowedModes" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "disruptions" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/DisruptionInput"
+            }
+          },
+          "impactScenario" : {
+            "$ref" : "#/components/schemas/ImpactScenarioInput"
+          }
+        }
+      },
+      "DecisionDto" : {
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "string"
+          },
+          "gateReasons" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "recommendedOption" : {
+            "type" : "string"
+          },
+          "commercialEvidence" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RerouteResponse" : {
+        "type" : "object",
+        "properties" : {
+          "shipmentId" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "selectedRoute" : {
+            "$ref" : "#/components/schemas/SelectedRouteDto"
+          },
+          "legs" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RouteLegDto"
+            }
+          },
+          "costEstimateInr" : {
+            "type" : "number"
+          },
+          "transitHoursEstimate" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "alternatives" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RouteAlternativeDto"
+            }
+          },
+          "decision" : {
+            "$ref" : "#/components/schemas/DecisionDto"
+          },
+          "dataProvenance" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "warnings" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "RouteAlternativeDto" : {
+        "type" : "object",
+        "properties" : {
+          "option" : {
+            "type" : "string"
+          },
+          "mode" : {
+            "type" : "string"
+          },
+          "costInr" : {
+            "type" : "number"
+          },
+          "transitHours" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "feasible" : {
+            "type" : "boolean"
+          },
+          "score" : {
+            "type" : "number",
+            "format" : "double"
+          }
+        }
+      },
+      "RouteLegDto" : {
+        "type" : "object",
+        "properties" : {
+          "legId" : {
+            "type" : "string"
+          },
+          "fromHub" : {
+            "type" : "string"
+          },
+          "toHub" : {
+            "type" : "string"
+          },
+          "mode" : {
+            "type" : "string"
+          },
+          "distanceKm" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "transitHours" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "costInr" : {
+            "type" : "number"
+          }
+        }
+      },
+      "SelectedRouteDto" : {
+        "type" : "object",
+        "properties" : {
+          "option" : {
+            "type" : "string"
+          },
+          "mode" : {
+            "type" : "string"
+          },
+          "freightInr" : {
+            "type" : "number"
+          },
+          "transitHours" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "feasible" : {
+            "type" : "boolean"
+          },
+          "disruptionIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
       "CreateApprovalRequest" : {
         "required" : [ "partCode", "recommendedQty", "targetSupplierId" ],
         "type" : "object",
@@ -1633,6 +1948,9 @@
             "format" : "int32"
           },
           "requestedBy" : {
+            "type" : "string"
+          },
+          "scenarioId" : {
             "type" : "string"
           }
         }
@@ -1846,6 +2164,15 @@
           },
           "extractionEngine" : {
             "type" : "string"
+          },
+          "backendStatus" : {
+            "type" : "string"
+          },
+          "warnings" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
           },
           "executiveBrief" : {
             "type" : "string"
@@ -2196,6 +2523,21 @@
             "type" : "string"
           },
           "hash" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AuditVerifyResponse" : {
+        "type" : "object",
+        "properties" : {
+          "valid" : {
+            "type" : "boolean"
+          },
+          "totalEvents" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "brokenAtEventId" : {
             "type" : "string"
           }
         }

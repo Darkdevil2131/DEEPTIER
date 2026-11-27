@@ -35,4 +35,10 @@ public class AuditController {
     public ResponseEntity<List<AuditEvent>> byScenario(@PathVariable String scenarioId) {
         return ResponseEntity.ok(auditService.getEvents(scenarioId));
     }
+
+    @GetMapping("/api/audit/verify")
+    @Operation(summary = "Verify integrity of the SHA-256 hash-chained audit log")
+    public ResponseEntity<AuditService.AuditVerifyResponse> verify() {
+        return ResponseEntity.ok(auditService.verifyChain());
+    }
 }

@@ -36,7 +36,7 @@ public class ApprovalService {
         ApprovalRequest saved = approvalRepo.save(request);
 
         auditService.logEvent(
-                null,
+                req.scenarioId(),
                 "APPROVAL_CREATED",
                 saved.getRequestedBy(),
                 "ApprovalRequest",

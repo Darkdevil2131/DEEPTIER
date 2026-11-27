@@ -18,8 +18,8 @@ public record ComputeExposureRequest(
         BigDecimal costFraction,
 
         @NotNull(message = "deltaPercentagePoints is required")
-        @Positive(message = "deltaPercentagePoints must be positive")
-        Integer deltaPercentagePoints,
+        @DecimalMin(value = "0.0", message = "deltaPercentagePoints must be >= 0.0")
+        BigDecimal deltaPercentagePoints,
 
         List<String> evidenceIds
 ) {}
