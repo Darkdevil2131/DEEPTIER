@@ -1,6 +1,7 @@
 package com.deeptier.api;
 
 import com.deeptier.config.DeepTierProperties;
+import com.deeptier.security.JwtService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -37,8 +38,15 @@ class FullApiCoverageIntegrationTest {
     @Autowired
     private DeepTierProperties props;
 
+    @Autowired
+    private JwtService jwtService;
+
     @Test
     void exportsOpenApiAndVerifiesAllDiscoveredJavaEndpoints() throws Exception {
+        String analystToken = jwtService.generateToken("analyst@deeptier.local", "ROLE_ANALYST");
+        String approverToken = jwtService.generateToken("approver@deeptier.local", "ROLE_APPROVER");
+        String adminToken = jwtService.generateToken("admin@deeptier.local", "ROLE_ADMIN");
+
         // 1. Export & cross-check /v3/api-docs
         MvcResult docsResult = mvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
@@ -47,6 +55,8 @@ class FullApiCoverageIntegrationTest {
         JsonNode paths = mapper.readTree(openApiJson).path("paths");
 
         List<String> expectedPaths = List.of(
+                "/api/auth/login",
+                "/api/auth/me",
                 "/api/seed/reset",
                 "/api/tier-map/nodes",
                 "/api/tier-map/links",
@@ -62,6 +72,7 @@ class FullApiCoverageIntegrationTest {
                 "/api/approvals/{id}/reject",
                 "/api/rfqs",
                 "/api/rfqs/{id}/sap-payload",
+                "/api/rfqs/{id}/push-sap",
                 "/api/audit",
                 "/api/audit/events",
                 "/api/audit/events/scenario/{scenarioId}",
@@ -82,16 +93,21 @@ class FullApiCoverageIntegrationTest {
         Files.writeString(openApiOut, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mapper.readTree(openApiJson)));
 
         // 2. Seed & Tier Map endpoints
-        mvc.perform(post("/api/seed/reset?seed=20261121"))
+        mvc.perform(post("/api/seed/reset?seed=20261121")
+                        .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nodes").value(5));
 
-        mvc.perform(get("/api/tier-map/nodes")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(5));
-        mvc.perform(get("/api/tier-map/links")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(4));
-        mvc.perform(get("/api/tier-map/graph")).andExpect(status().isOk()).andExpect(jsonPath("$.nodes.length()").value(5));
+        mvc.perform(get("/api/tier-map/nodes").header("Authorization", "Bearer " + analystToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(5));
+        mvc.perform(get("/api/tier-map/links").header("Authorization", "Bearer " + analystToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(4));
+        mvc.perform(get("/api/tier-map/graph").header("Authorization", "Bearer " + analystToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.nodes.length()").value(5));
 
         // 3. What-If (verify Rank 1 is vetted supplier SUP-RJK-CAST + 0% / 12.5% decimal tariffs)
         MvcResult simRes = mvc.perform(post("/api/whatif/simulate")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"hsCode\":\"7325\",\"deltaPercentagePoints\":20}"))
                 .andExpect(status().isOk())
@@ -104,12 +120,14 @@ class FullApiCoverageIntegrationTest {
         assertEquals("SUP-RJK-CAST", rank1Supplier);
 
         mvc.perform(post("/api/whatif/simulate")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"hsCode\":\"7325\",\"deltaPercentagePoints\":12.5}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tariffShock.deltaPercentagePoints").value(12.5));
 
         mvc.perform(post("/api/whatif/simulate")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"hsCode\":\"7325\",\"deltaPercentagePoints\":0}"))
                 .andExpect(status().isOk())
@@ -117,6 +135,7 @@ class FullApiCoverageIntegrationTest {
 
         // 4. Disruption Agent (deterministic fallback when Python offline)
         mvc.perform(post("/api/agent/analyze-disruption")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"alertText\":\"20% tariff hike on HS 7325 castings from China with 5 days delay\",\"partCode\":\"HPH-1042\",\"scenarioId\":\"SCEN-E2E\"}"))
                 .andExpect(status().isOk())
@@ -126,13 +145,15 @@ class FullApiCoverageIntegrationTest {
 
         // Malformed JSON -> 400
         mvc.perform(post("/api/agent/analyze-disruption")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{invalid"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_JSON"));
 
-        // 5. Rank-1 SUP-RJK-CAST -> Approval -> Approve -> RFQ -> SAP Payload
+        // 5. Rank-1 SUP-RJK-CAST -> Approval -> Approve -> RFQ -> SAP Payload -> SAP Push
         MvcResult createRes = mvc.perform(post("/api/approvals")
+                        .header("Authorization", "Bearer " + analystToken)
                         .header("Idempotency-Key", "IDEMP-FULL-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"partCode\":\"HPH-1042\",\"sourceSupplierId\":\"SUP-NGB-BETA\",\"targetSupplierId\":\"" + rank1Supplier + "\",\"recommendedQty\":300,\"estimatedLandedCost\":518000,\"estimatedLeadTimeDays\":4,\"scenarioId\":\"SCEN-E2E\"}"))
@@ -140,10 +161,11 @@ class FullApiCoverageIntegrationTest {
                 .andReturn();
         String approvalId = mapper.readTree(createRes.getResponse().getContentAsString()).path("id").asText();
 
-        mvc.perform(get("/api/approvals")).andExpect(status().isOk());
-        mvc.perform(get("/api/approvals/" + approvalId)).andExpect(status().isOk());
+        mvc.perform(get("/api/approvals").header("Authorization", "Bearer " + analystToken)).andExpect(status().isOk());
+        mvc.perform(get("/api/approvals/" + approvalId).header("Authorization", "Bearer " + analystToken)).andExpect(status().isOk());
 
         MvcResult approveRes = mvc.perform(post("/api/approvals/" + approvalId + "/approve")
+                        .header("Authorization", "Bearer " + approverToken)
                         .header("Idempotency-Key", "IDEMP-FULL-APP-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reviewerName\":\"Gaurav\",\"comment\":\"Approved\"}"))
@@ -152,18 +174,23 @@ class FullApiCoverageIntegrationTest {
                 .andReturn();
         String rfqId = mapper.readTree(approveRes.getResponse().getContentAsString()).path("rfq").path("id").asText();
 
-        mvc.perform(get("/api/rfqs")).andExpect(status().isOk());
-        mvc.perform(get("/api/rfqs/" + rfqId + "/sap-payload"))
+        mvc.perform(get("/api/rfqs").header("Authorization", "Bearer " + analystToken)).andExpect(status().isOk());
+        mvc.perform(get("/api/rfqs/" + rfqId + "/sap-payload").header("Authorization", "Bearer " + analystToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sapService").value("API_PURCHASEREQ_PROCESS_SRV"))
                 .andExpect(jsonPath("$.payload.PurchaseRequisitionType").value("NB"));
-        mvc.perform(get("/api/rfqs/RFQ-MISSING/sap-payload")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/rfqs/RFQ-MISSING/sap-payload").header("Authorization", "Bearer " + analystToken))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/rfqs/" + rfqId + "/push-sap").header("Authorization", "Bearer " + approverToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("simulated_s4hana"))
+                .andExpect(jsonPath("$.status").value("PUSHED_TO_SAP"));
 
         // 6. Audit endpoints + SHA-256 chain verify
-        mvc.perform(get("/api/audit")).andExpect(status().isOk());
-        mvc.perform(get("/api/audit/events")).andExpect(status().isOk());
-        mvc.perform(get("/api/audit/events/scenario/SCEN-E2E")).andExpect(status().isOk());
-        mvc.perform(get("/api/audit/verify"))
+        mvc.perform(get("/api/audit").header("Authorization", "Bearer " + analystToken)).andExpect(status().isOk());
+        mvc.perform(get("/api/audit/events").header("Authorization", "Bearer " + analystToken)).andExpect(status().isOk());
+        mvc.perform(get("/api/audit/events/scenario/SCEN-E2E").header("Authorization", "Bearer " + analystToken)).andExpect(status().isOk());
+        mvc.perform(get("/api/audit/verify").header("Authorization", "Bearer " + analystToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(true));
 
@@ -197,7 +224,8 @@ class FullApiCoverageIntegrationTest {
                 .andExpect(status().isOk());
 
         // 8. CSV Template download + Custom CSV upload (HS 8504 from DE) -> Disruption Analysis
-        mvc.perform(get("/api/supply-chain/import/template"))
+        mvc.perform(get("/api/supply-chain/import/template")
+                        .header("Authorization", "Bearer " + analystToken))
                 .andExpect(status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
                         .string(org.hamcrest.Matchers.containsString("parent_part_code,child_part_code")));
@@ -207,12 +235,14 @@ class FullApiCoverageIntegrationTest {
                 "HPH-1042,COIL-8504,SUP-CBE-ALPHA,SUP-DE-COIL,Munich Magnetics,DE,2,DECLARED,0.95,2000000,0.50,8504,25,EV-CSV-8504"
         );
         mvc.perform(post("/api/supply-chain/import/csv?mode=append")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType("text/csv")
                         .content(customCsv))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.linksCreated").value(1));
 
         mvc.perform(post("/api/agent/analyze-disruption")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"alertText\":\"20% tariff on HSN 8504 from Germany\",\"partCode\":\"HPH-1042\",\"scenarioId\":\"SCEN-CSV-8504\"}"))
                 .andExpect(status().isOk())
@@ -221,6 +251,8 @@ class FullApiCoverageIntegrationTest {
                 .andExpect(jsonPath("$.simulation.tariffShock.totalExposureInr").value(200000.0));
 
         // Restore canonical 5-node seed so subsequent test classes see clean baseline
-        mvc.perform(post("/api/seed/reset?seed=20261121")).andExpect(status().isOk());
+        mvc.perform(post("/api/seed/reset?seed=20261121")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
     }
 }

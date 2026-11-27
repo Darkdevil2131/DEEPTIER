@@ -1,5 +1,6 @@
 package com.deeptier.api;
 
+import com.deeptier.security.JwtService;
 import com.deeptier.seed.SeedGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,10 +23,13 @@ class SupplyChainControllerTest {
 
     @Autowired MockMvc mvc;
     @Autowired SeedGenerator seedGenerator;
+    @Autowired JwtService jwtService;
+    private String analystToken;
 
     @BeforeEach
     void setUp() {
         seedGenerator.reset(20261121L);
+        analystToken = jwtService.generateToken("analyst@deeptier.local", "ROLE_ANALYST");
     }
 
     @Test
@@ -45,7 +49,8 @@ class SupplyChainControllerTest {
 
         mvc.perform(multipart("/api/supply-chain/import/csv")
                         .file(file)
-                        .param("mode", "replace"))
+                        .param("mode", "replace")
+                        .header("Authorization", "Bearer " + analystToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IMPORT_SUCCESS"))
                 .andExpect(jsonPath("$.totalRowsProcessed").value(2))
@@ -68,7 +73,8 @@ class SupplyChainControllerTest {
         );
 
         mvc.perform(multipart("/api/supply-chain/import/csv")
-                        .file(file))
+                        .file(file)
+                        .header("Authorization", "Bearer " + analystToken))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("CSV_VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.errors[0].line").value(2))

@@ -4,11 +4,15 @@ import com.deeptier.api.dto.*;
 import com.deeptier.audit.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -21,6 +25,9 @@ public class ApprovalService {
 
     @Transactional
     public ApprovalResponse createApproval(CreateApprovalRequest req) {
+        String requestedBy = resolveAuthenticatedUser()
+                .orElse(req.requestedBy() != null && !req.requestedBy().isBlank() ? req.requestedBy() : "system");
+
         ApprovalRequest request = ApprovalRequest.builder()
                 .partCode(req.partCode())
                 .sourceSupplierId(req.sourceSupplierId())
@@ -28,7 +35,7 @@ public class ApprovalService {
                 .recommendedQty(req.recommendedQty())
                 .estimatedLandedCost(req.estimatedLandedCost())
                 .estimatedLeadTimeDays(req.estimatedLeadTimeDays())
-                .requestedBy(req.requestedBy() != null && !req.requestedBy().isBlank() ? req.requestedBy() : "system")
+                .requestedBy(requestedBy)
                 .approvalStatus(ApprovalStatus.PENDING_APPROVAL)
                 .createdAt(Instant.now())
                 .build();
@@ -59,7 +66,13 @@ public class ApprovalService {
             );
         }
 
-        String actor = req != null ? req.effectiveReviewerName() : "system";
+        Optional<String> authenticatedUser = resolveAuthenticatedUser();
+        String actor = authenticatedUser.orElse(req != null ? req.effectiveReviewerName() : "system");
+        if (authenticatedUser.isPresent()
+                && request.getRequestedBy() != null
+                && actor.equalsIgnoreCase(request.getRequestedBy())) {
+            throw new AccessDeniedException("Self-approval is not permitted: approver cannot be the same user who created the request");
+        }
         String comment = req != null ? req.effectiveComment() : "Approved";
 
         request.setReviewerName(actor);
@@ -130,7 +143,7 @@ public class ApprovalService {
             );
         }
 
-        String actor = req != null ? req.effectiveReviewerName() : "system";
+        String actor = resolveAuthenticatedUser().orElse(req != null ? req.effectiveReviewerName() : "system");
         String comment = req != null ? req.effectiveComment() : "Rejected";
 
         request.setReviewerName(actor);
@@ -177,6 +190,14 @@ public class ApprovalService {
         return approvalRepo.findById(id)
                 .map(this::toDto)
                 .orElseThrow(() -> new ResourceNotFoundException("ApprovalRequest not found with id: " + id));
+    }
+
+    private Optional<String> resolveAuthenticatedUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getPrincipal())) {
+            return Optional.ofNullable(auth.getName());
+        }
+        return Optional.empty();
     }
 
     public ApprovalResponse toDto(ApprovalRequest a) {

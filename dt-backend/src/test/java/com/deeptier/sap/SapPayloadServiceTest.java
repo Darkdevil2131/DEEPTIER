@@ -4,6 +4,7 @@ import com.deeptier.api.dto.ApprovalDecisionRequest;
 import com.deeptier.api.dto.CreateApprovalRequest;
 import com.deeptier.api.dto.SapPurchaseRequisitionPayload;
 import com.deeptier.approval.*;
+import com.deeptier.security.JwtService;
 import com.deeptier.seed.SeedGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,10 +34,13 @@ class SapPayloadServiceTest {
     @Autowired MockRfqRepository mockRfqRepo;
     @Autowired SeedGenerator seedGenerator;
     @Autowired MockMvc mvc;
+    @Autowired JwtService jwtService;
+    private String analystToken;
 
     @BeforeEach
     void setUp() {
         seedGenerator.reset(20261121L);
+        analystToken = jwtService.generateToken("analyst@deeptier.local", "ROLE_ANALYST");
     }
 
     @Test
@@ -62,6 +66,7 @@ class SapPayloadServiceTest {
 
         // Controller GET /api/rfqs/{id}/sap-payload
         mvc.perform(get("/api/rfqs/" + rfqId + "/sap-payload")
+                        .header("Authorization", "Bearer " + analystToken)
                         .header("Idempotency-Key", "IDEM-SAP-TEST-01"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sapService").value("API_PURCHASEREQ_PROCESS_SRV"))
@@ -74,7 +79,8 @@ class SapPayloadServiceTest {
     @Test
     @DisplayName("Missing RFQ returns 404 Not Found")
     void missingRfqReturns404() throws Exception {
-        mvc.perform(get("/api/rfqs/RFQ-DOES-NOT-EXIST/sap-payload"))
+        mvc.perform(get("/api/rfqs/RFQ-DOES-NOT-EXIST/sap-payload")
+                        .header("Authorization", "Bearer " + analystToken))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }
@@ -107,7 +113,8 @@ class SapPayloadServiceTest {
                 .issuedAt(Instant.now())
                 .build());
 
-        mvc.perform(get("/api/rfqs/" + unsealedRfq.getId() + "/sap-payload"))
+        mvc.perform(get("/api/rfqs/" + unsealedRfq.getId() + "/sap-payload")
+                        .header("Authorization", "Bearer " + analystToken))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STATE_CONFLICT"));
     }

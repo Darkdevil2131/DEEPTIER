@@ -1,5 +1,6 @@
 package com.deeptier.api;
 
+import com.deeptier.security.JwtService;
 import com.deeptier.seed.SeedGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,10 +21,13 @@ class WhatIfControllerTest {
 
     @Autowired MockMvc mvc;
     @Autowired SeedGenerator seedGenerator;
+    @Autowired JwtService jwtService;
+    private String analystToken;
 
     @BeforeEach
     void setUp() {
         seedGenerator.reset(20261121L);
+        analystToken = jwtService.generateToken("analyst@deeptier.local", "ROLE_ANALYST");
     }
 
     @Test
@@ -42,6 +46,7 @@ class WhatIfControllerTest {
                 }
                 """;
         mvc.perform(post("/api/whatif/simulate")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())

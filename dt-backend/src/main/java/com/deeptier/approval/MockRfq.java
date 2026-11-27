@@ -48,6 +48,15 @@ public class MockRfq {
     @Column(name = "issued_at", nullable = false)
     private Instant issuedAt;
 
+    @Column(name = "sap_pr_id", length = 64)
+    private String sapPurchaseRequisitionId;
+
+    @Column(name = "sap_pushed_at")
+    private Instant sapPushedAt;
+
+    @Column(name = "sap_push_mode", length = 32)
+    private String sapPushMode;
+
     @PrePersist
     void prePersist() {
         if (this.id == null) {

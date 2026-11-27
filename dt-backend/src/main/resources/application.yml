@@ -49,6 +49,10 @@ springdoc:
   show-actuator: true
 
 deeptier:
+  auth:
+    enabled: ${DEEPTIER_AUTH_ENABLED:true}
+    jwt-secret: ${DEEPTIER_JWT_SECRET:deeptier-dev-jwt-secret-change-in-prod-2026-min-32-bytes}
+    expiration-seconds: ${DEEPTIER_JWT_EXPIRATION_SECONDS:86400}
   demo:
     reset-enabled: ${DEEPTIER_DEMO_RESET_ENABLED:true}
   agent:

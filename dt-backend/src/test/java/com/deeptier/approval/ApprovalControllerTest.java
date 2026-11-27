@@ -1,6 +1,7 @@
 package com.deeptier.approval;
 
 import com.deeptier.repo.AuditEventRepository;
+import com.deeptier.security.JwtService;
 import com.deeptier.seed.SeedGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -29,6 +30,9 @@ class ApprovalControllerTest {
     @Autowired MockRfqRepository mockRfqRepo;
     @Autowired IdempotencyRecordRepository idempotencyRepo;
     @Autowired AuditEventRepository auditRepo;
+    @Autowired JwtService jwtService;
+    private String analystToken;
+    private String approverToken;
 
     @BeforeEach
     void setUp() {
@@ -36,6 +40,8 @@ class ApprovalControllerTest {
         mockRfqRepo.deleteAll();
         approvalRepo.deleteAll();
         idempotencyRepo.deleteAll();
+        analystToken = jwtService.generateToken("analyst@deeptier.local", "ROLE_ANALYST");
+        approverToken = jwtService.generateToken("approver@deeptier.local", "ROLE_APPROVER");
     }
 
     @Test
@@ -55,6 +61,7 @@ class ApprovalControllerTest {
                 """;
 
         String createRes = mvc.perform(post("/api/approvals")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createBody))
                 .andExpect(status().isCreated())
@@ -76,12 +83,13 @@ class ApprovalControllerTest {
                 """;
 
         mvc.perform(post("/api/approvals/" + approvalId + "/approve")
+                        .header("Authorization", "Bearer " + approverToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(decisionBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.approval.id").value(approvalId))
                 .andExpect(jsonPath("$.approval.approvalStatus").value("AUDITED"))
-                .andExpect(jsonPath("$.approval.reviewerName").value("user:ravi-owner"))
+                .andExpect(jsonPath("$.approval.reviewerName").value("approver@deeptier.local"))
                 .andExpect(jsonPath("$.approval.rfqId").isString())
                 .andExpect(jsonPath("$.rfq.id").isString())
                 .andExpect(jsonPath("$.rfq.approvalRequestId").value(approvalId))
@@ -105,7 +113,8 @@ class ApprovalControllerTest {
         assertThat(events).anyMatch(e -> "APPROVAL_AUDITED".equals(e.getEventType()));
 
         // 5. Verify RfqController lists the generated RFQ
-        mvc.perform(get("/api/rfqs"))
+        mvc.perform(get("/api/rfqs")
+                        .header("Authorization", "Bearer " + analystToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].approvalRequestId").value(approvalId));
@@ -127,6 +136,7 @@ class ApprovalControllerTest {
                 """;
 
         String createRes = mvc.perform(post("/api/approvals")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createBody))
                 .andExpect(status().isCreated())
@@ -143,12 +153,13 @@ class ApprovalControllerTest {
                 """;
 
         mvc.perform(post("/api/approvals/" + approvalId + "/reject")
+                        .header("Authorization", "Bearer " + approverToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(decisionBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(approvalId))
                 .andExpect(jsonPath("$.approvalStatus").value("AUDITED"))
-                .andExpect(jsonPath("$.reviewerName").value("user:finance-director"))
+                .andExpect(jsonPath("$.reviewerName").value("approver@deeptier.local"))
                 .andExpect(jsonPath("$.rfqId").doesNotExist());
 
         // 3. Verify NO MockRfq created
@@ -175,6 +186,7 @@ class ApprovalControllerTest {
                 """;
 
         String createRes = mvc.perform(post("/api/approvals")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createBody))
                 .andExpect(status().isCreated())
@@ -191,12 +203,14 @@ class ApprovalControllerTest {
                 """;
 
         mvc.perform(post("/api/approvals/" + approvalId + "/approve")
+                        .header("Authorization", "Bearer " + approverToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(decisionBody))
                 .andExpect(status().isOk());
 
         // 3. Attempting to approve again must return 409 Conflict
         mvc.perform(post("/api/approvals/" + approvalId + "/approve")
+                        .header("Authorization", "Bearer " + approverToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(decisionBody))
                 .andExpect(status().isConflict())
@@ -205,6 +219,7 @@ class ApprovalControllerTest {
 
         // 4. Attempting to reject an already AUDITED request also returns 409 Conflict
         mvc.perform(post("/api/approvals/" + approvalId + "/reject")
+                        .header("Authorization", "Bearer " + approverToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(decisionBody))
                 .andExpect(status().isConflict())
@@ -226,6 +241,7 @@ class ApprovalControllerTest {
                 """;
 
         String createRes = mvc.perform(post("/api/approvals")
+                        .header("Authorization", "Bearer " + analystToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createBody))
                 .andExpect(status().isCreated())
@@ -244,6 +260,7 @@ class ApprovalControllerTest {
 
         // First call with Idempotency-Key
         String firstRes = mvc.perform(post("/api/approvals/" + approvalId + "/approve")
+                        .header("Authorization", "Bearer " + approverToken)
                         .header("Idempotency-Key", idempotencyKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(decisionBody))
@@ -257,6 +274,7 @@ class ApprovalControllerTest {
 
         // Second call with same Idempotency-Key -> should replay cached response without 409 conflict
         String secondRes = mvc.perform(post("/api/approvals/" + approvalId + "/approve")
+                        .header("Authorization", "Bearer " + approverToken)
                         .header("Idempotency-Key", idempotencyKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(decisionBody))
@@ -279,18 +297,21 @@ class ApprovalControllerTest {
     void testListApprovalsWithFilter() throws Exception {
         // Create 2 requests
         mvc.perform(post("/api/approvals")
+                .header("Authorization", "Bearer " + analystToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"partCode":"PART-A","targetSupplierId":"SUP-A","recommendedQty":10}
                         """)).andExpect(status().isCreated());
 
         mvc.perform(post("/api/approvals")
+                .header("Authorization", "Bearer " + analystToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"partCode":"PART-B","targetSupplierId":"SUP-B","recommendedQty":20}
                         """)).andExpect(status().isCreated());
 
-        mvc.perform(get("/api/approvals?status=PENDING_APPROVAL"))
+        mvc.perform(get("/api/approvals?status=PENDING_APPROVAL")
+                        .header("Authorization", "Bearer " + analystToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$.length()").value(2));

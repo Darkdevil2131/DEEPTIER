@@ -17,20 +17,24 @@
     "description" : "Generated server url"
   } ],
   "security" : [ {
+    "BearerAuth" : [ ],
     "InternalKey" : [ ]
   } ],
   "tags" : [ {
     "name" : "Approval",
     "description" : "Human-in-the-Loop approval gate, idempotency, and mock RFQ creation"
   }, {
+    "name" : "Authentication",
+    "description" : "Stateless JWT authentication for DeepTier RBAC"
+  }, {
+    "name" : "RFQ",
+    "description" : "Mock RFQ tracking and S/4HANA Purchase Requisition push"
+  }, {
     "name" : "Supply Chain",
     "description" : "Supply chain CSV onboarding and ingestion"
   }, {
     "name" : "WhatIf",
     "description" : "Tariff shock simulation and recovery optimizer"
-  }, {
-    "name" : "RFQ",
-    "description" : "Mock RFQ tracking (strictly sentExternally = false)"
   }, {
     "name" : "TierMap",
     "description" : "Supplier network graph - nodes and links with evidence quality"
@@ -304,6 +308,41 @@
         }
       }
     },
+    "/api/rfqs/{id}/push-sap" : {
+      "post" : {
+        "tags" : [ "RFQ" ],
+        "summary" : "Push Purchase Requisition to SAP S/4HANA",
+        "description" : "Executes live OData V2 CSRF+POST when S4HANA_BASE_URL is configured, or simulated S/4HANA push otherwise. Marks RFQ as PUSHED_TO_SAP and logs SAP_PR_PUSHED.",
+        "operationId" : "pushToSap",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SapPushResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/logistics/reroute" : {
       "post" : {
         "tags" : [ "Logistics Routing" ],
@@ -327,6 +366,35 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/RerouteResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login" : {
+      "post" : {
+        "tags" : [ "Authentication" ],
+        "summary" : "Authenticate and obtain a JWT Bearer token",
+        "operationId" : "login",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/LoginResponse"
                 }
               }
             }
@@ -702,6 +770,25 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/SapPurchaseRequisitionPayload"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me" : {
+      "get" : {
+        "tags" : [ "Authentication" ],
+        "summary" : "Return the currently authenticated user's username and role",
+        "operationId" : "me",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/UserInfoResponse"
                 }
               }
             }
@@ -1690,6 +1777,27 @@
           }
         }
       },
+      "SapPushResponse" : {
+        "type" : "object",
+        "properties" : {
+          "mode" : {
+            "type" : "string"
+          },
+          "rfqId" : {
+            "type" : "string"
+          },
+          "purchaseRequisitionId" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "pushedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
       "CarrierQuoteInput" : {
         "required" : [ "amount", "carrierId", "mode" ],
         "type" : "object",
@@ -2023,6 +2131,35 @@
             "items" : {
               "type" : "string"
             }
+          }
+        }
+      },
+      "LoginRequest" : {
+        "required" : [ "password", "username" ],
+        "type" : "object",
+        "properties" : {
+          "username" : {
+            "type" : "string"
+          },
+          "password" : {
+            "type" : "string"
+          }
+        }
+      },
+      "LoginResponse" : {
+        "type" : "object",
+        "properties" : {
+          "accessToken" : {
+            "type" : "string"
+          },
+          "tokenType" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          },
+          "role" : {
+            "type" : "string"
           }
         }
       },
@@ -2591,6 +2728,17 @@
           }
         }
       },
+      "UserInfoResponse" : {
+        "type" : "object",
+        "properties" : {
+          "username" : {
+            "type" : "string"
+          },
+          "role" : {
+            "type" : "string"
+          }
+        }
+      },
       "AuditEvent" : {
         "type" : "object",
         "properties" : {
@@ -2625,10 +2773,10 @@
             "type" : "string",
             "format" : "date-time"
           },
-          "hash" : {
+          "prevHash" : {
             "type" : "string"
           },
-          "prevHash" : {
+          "hash" : {
             "type" : "string"
           }
         }
@@ -2661,6 +2809,11 @@
       }
     },
     "securitySchemes" : {
+      "BearerAuth" : {
+        "type" : "http",
+        "scheme" : "bearer",
+        "bearerFormat" : "JWT"
+      },
       "InternalKey" : {
         "type" : "apiKey",
         "description" : "Required for /internal/tools/* endpoints",
