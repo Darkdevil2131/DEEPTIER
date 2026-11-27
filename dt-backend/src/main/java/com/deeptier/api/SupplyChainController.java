@@ -51,4 +51,18 @@ public class SupplyChainController {
             @RequestParam(defaultValue = "replace") String mode) {
         return ResponseEntity.ok(csvImportService.importCsv(csvContent, mode));
     }
+
+    @GetMapping(value = "/import/template", produces = "text/csv")
+    @Operation(summary = "Download sample CSV template",
+               description = "Returns a valid text/csv template matching the 14 required onboarding columns.")
+    public ResponseEntity<String> downloadTemplate() {
+        String template = String.join("\n",
+                "parent_part_code,child_part_code,source_supplier_id,target_supplier_id,supplier_name,country,tier,link_type,confidence,annual_spend_inr,cost_fraction,hs_code,lead_time_days,evidence_ids",
+                "HPH-1042,CAST-7325,SUP-CBE-ALPHA,SUP-NGB-BETA,Beta Foundry (Ningbo),CN,2,INFERRED,0.60,4800000,0.60,7325,30,EV-TRADE-2024-001"
+        ) + "\n";
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=\"deeptier-supply-chain-template.csv\"")
+                .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .body(template);
+    }
 }

@@ -49,6 +49,8 @@ springdoc:
   show-actuator: true
 
 deeptier:
+  demo:
+    reset-enabled: ${DEEPTIER_DEMO_RESET_ENABLED:true}
   agent:
     runtime: python              # hot-swap to 'joule' later
   internal:

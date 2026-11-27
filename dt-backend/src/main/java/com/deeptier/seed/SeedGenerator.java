@@ -4,6 +4,7 @@ import com.deeptier.approval.ApprovalRequestRepository;
 import com.deeptier.approval.IdempotencyRecordRepository;
 import com.deeptier.approval.MockRfqRepository;
 import com.deeptier.audit.AuditEvent;
+import com.deeptier.audit.AuditService;
 import com.deeptier.domain.*;
 import com.deeptier.repo.AuditEventRepository;
 import com.deeptier.repo.BackupSupplierRepository;
@@ -307,7 +308,7 @@ public class SeedGenerator {
                 .actor("system")
                 .payload(payload)
                 .beforeHash("0")
-                .afterHash(sha256("0" + payload))
+                .afterHash(AuditService.computeEventHash("0", "SEED_RESET", "system", payload))
                 .occurredAt(now)
                 .build();
         auditRepo.save(genesis);

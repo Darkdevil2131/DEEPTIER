@@ -7,8 +7,11 @@ import com.deeptier.seed.SeedGenerator;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 
@@ -22,12 +25,20 @@ public class SeedController {
     private final SupplierNodeRepository nodeRepo;
     private final SupplierLinkRepository linkRepo;
 
+    @Value("${deeptier.demo.reset-enabled:true}")
+    private boolean resetEnabled = true;
+
     @PostMapping("/reset")
     @Operation(summary = "Reset to seed scenario",
                description = "Wipes all data and loads the deterministic Hydraulic Pump Housing demo. " +
-                             "Use seed=20261121 for the official Hackfest demo.")
+                             "Use seed=20261121 for the official Hackfest demo. Gated by deeptier.demo.reset-enabled.")
     public ResponseEntity<SeedResetResponse> reset(
             @RequestParam(defaultValue = "20261121") long seed) {
+
+        if (!resetEnabled) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Demo reset is disabled in this environment (deeptier.demo.reset-enabled=false).");
+        }
 
         seedGenerator.reset(seed);
 

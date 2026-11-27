@@ -52,6 +52,7 @@ class FullApiCoverageIntegrationTest {
                 "/api/tier-map/links",
                 "/api/tier-map/graph",
                 "/api/supply-chain/import/csv",
+                "/api/supply-chain/import/template",
                 "/api/whatif/simulate",
                 "/api/agent/analyze-disruption",
                 "/api/logistics/reroute",
@@ -194,5 +195,32 @@ class FullApiCoverageIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"supplierNodeId\":\"SUP-RJK-CAST\",\"quantity\":300,\"deliveryOption\":\"AIR\"}"))
                 .andExpect(status().isOk());
+
+        // 8. CSV Template download + Custom CSV upload (HS 8504 from DE) -> Disruption Analysis
+        mvc.perform(get("/api/supply-chain/import/template"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("parent_part_code,child_part_code")));
+
+        String customCsv = String.join("\n",
+                "parent_part_code,child_part_code,source_supplier_id,target_supplier_id,supplier_name,country,tier,link_type,confidence,annual_spend_inr,cost_fraction,hs_code,lead_time_days,evidence_ids",
+                "HPH-1042,COIL-8504,SUP-CBE-ALPHA,SUP-DE-COIL,Munich Magnetics,DE,2,DECLARED,0.95,2000000,0.50,8504,25,EV-CSV-8504"
+        );
+        mvc.perform(post("/api/supply-chain/import/csv?mode=append")
+                        .contentType("text/csv")
+                        .content(customCsv))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linksCreated").value(1));
+
+        mvc.perform(post("/api/agent/analyze-disruption")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"alertText\":\"20% tariff on HSN 8504 from Germany\",\"partCode\":\"HPH-1042\",\"scenarioId\":\"SCEN-CSV-8504\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.affectedHsCode").value("8504"))
+                .andExpect(jsonPath("$.originCountry").value("DE"))
+                .andExpect(jsonPath("$.simulation.tariffShock.totalExposureInr").value(200000.0));
+
+        // Restore canonical 5-node seed so subsequent test classes see clean baseline
+        mvc.perform(post("/api/seed/reset?seed=20261121")).andExpect(status().isOk());
     }
 }

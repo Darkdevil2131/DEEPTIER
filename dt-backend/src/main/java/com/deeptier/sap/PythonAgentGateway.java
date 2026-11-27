@@ -36,7 +36,7 @@ import java.util.Optional;
 public class PythonAgentGateway implements AgentGateway {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(8);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(25);
 
     private final String pythonBaseUrl;
     private final String internalKey;

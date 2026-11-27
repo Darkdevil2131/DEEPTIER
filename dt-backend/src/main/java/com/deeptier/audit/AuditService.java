@@ -33,13 +33,15 @@ public class AuditService {
                 .map(AuditEvent::getAfterHash)
                 .orElse("0");
 
+        String safeActor = actor != null ? actor : "system";
+        String safeEventType = eventType != null ? eventType : "UNKNOWN";
         String currentPayload = payload != null ? payload : "{}";
-        String afterHash = computeSha256(prevHash + currentPayload);
+        String afterHash = computeEventHash(prevHash, safeEventType, safeActor, currentPayload);
 
         AuditEvent event = AuditEvent.builder()
                 .scenarioId(scenarioId)
-                .eventType(eventType)
-                .actor(actor != null ? actor : "system")
+                .eventType(safeEventType)
+                .actor(safeActor)
                 .entityType(entityType)
                 .entityId(entityId)
                 .payload(currentPayload)
@@ -77,13 +79,23 @@ public class AuditService {
                 return new AuditVerifyResponse(false, events.size(), ev.getId());
             }
             String payload = ev.getPayload() != null ? ev.getPayload() : "{}";
-            String recomputed = computeSha256(expectedBefore + payload);
+            String evType = ev.getEventType() != null ? ev.getEventType() : "UNKNOWN";
+            String evActor = ev.getActor() != null ? ev.getActor() : "system";
+            String recomputed = computeEventHash(expectedBefore, evType, evActor, payload);
             if (!recomputed.equals(ev.getAfterHash())) {
                 return new AuditVerifyResponse(false, events.size(), ev.getId());
             }
             expectedBefore = ev.getAfterHash();
         }
         return new AuditVerifyResponse(true, events.size(), null);
+    }
+
+    public static String computeEventHash(String beforeHash, String eventType, String actor, String payload) {
+        String safeBefore = beforeHash != null ? beforeHash : "0";
+        String safeType = eventType != null ? eventType : "UNKNOWN";
+        String safeActor = actor != null ? actor : "system";
+        String safePayload = payload != null ? payload : "{}";
+        return computeSha256(safeBefore + "|" + safeType + "|" + safeActor + "|" + safePayload);
     }
 
     private static String computeSha256(String input) {

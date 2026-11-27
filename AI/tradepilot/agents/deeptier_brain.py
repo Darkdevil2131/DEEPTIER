@@ -130,10 +130,16 @@ def _extract_with_gemini(alert_text: str, part_code: str) -> dict[str, Any] | No
             "signalType (string, e.g. TARIFF_SHOCK or LOGISTICS_DISRUPTION), confidence (0..1 float). "
             f"PartCode={part_code}\nAlert={alert_text}"
         )
+        config_kwargs: dict[str, Any] = {"temperature": 0, "max_output_tokens": 1024}
+        if hasattr(types, "ThinkingConfig"):
+            try:
+                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            except Exception:
+                pass
         response = client.models.generate_content(
             model=model,
             contents=prompt,
-            config=types.GenerateContentConfig(temperature=0, max_output_tokens=200),
+            config=types.GenerateContentConfig(**config_kwargs),
         )
         raw = (response.text or "").strip()
         if raw.startswith("```"):
@@ -176,10 +182,16 @@ def _synthesize_brief_with_gemini(payload: dict[str, Any]) -> str | None:
             "that human approval is required in dt-backend before execution.\nJSON="
             + json.dumps(payload, default=str)
         )
+        config_kwargs: dict[str, Any] = {"temperature": 0, "max_output_tokens": 1024}
+        if hasattr(types, "ThinkingConfig"):
+            try:
+                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            except Exception:
+                pass
         response = client.models.generate_content(
             model=model,
             contents=prompt,
-            config=types.GenerateContentConfig(temperature=0, max_output_tokens=220),
+            config=types.GenerateContentConfig(**config_kwargs),
         )
         text = (response.text or "").strip()
         return text or None
