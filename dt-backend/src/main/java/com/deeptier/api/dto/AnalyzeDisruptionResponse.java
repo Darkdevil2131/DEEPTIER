@@ -17,6 +17,8 @@ public record AnalyzeDisruptionResponse(
         String signalType,
         BigDecimal confidence,
         String extractionEngine,
+        String backendStatus,
+        List<String> warnings,
         String executiveBrief,
         List<String> evidenceIds,
         WhatIfService.WhatIfSimulationResponse simulation,

@@ -3,6 +3,8 @@ package com.deeptier.api;
 import com.deeptier.engine.WhatIfService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,10 +36,10 @@ public class WhatIfController {
                              "Monte Carlo percentiles (p10/p50/p90), and ranked recovery options. " +
                              "All arithmetic runs in deterministic Java - AI agents do NOT compute numbers.")
     public ResponseEntity<WhatIfService.WhatIfSimulationResponse> simulate(
-            @RequestBody(required = false) SimulateRequest req) {
+            @Valid @RequestBody(required = false) SimulateRequest req) {
 
         SimulateRequest r = req != null ? req : new SimulateRequest(
-                "HPH-WHATIF-001", "7325", "CN", 20,
+                "HPH-WHATIF-001", "7325", "CN", BigDecimal.valueOf(20),
                 BigDecimal.valueOf(4_800_000), BigDecimal.valueOf(0.60),
                 300, 20, 30, BigDecimal.valueOf(80_000), 20261121L
         );
@@ -46,7 +48,7 @@ public class WhatIfController {
                 r.scenarioId(),
                 r.hsCode(),
                 r.originCountry(),
-                r.deltaPercentagePoints() != null ? BigDecimal.valueOf(r.deltaPercentagePoints()) : null,
+                r.deltaPercentagePoints(),
                 r.annualSpendInr(),
                 r.costFraction(),
                 r.unitsOnHand(),
@@ -63,7 +65,8 @@ public class WhatIfController {
             String scenarioId,
             String hsCode,
             String originCountry,
-            Integer deltaPercentagePoints,
+            @DecimalMin(value = "0.0", message = "deltaPercentagePoints must be >= 0.0")
+            BigDecimal deltaPercentagePoints,
             BigDecimal annualSpendInr,
             BigDecimal costFraction,
             Integer unitsOnHand,

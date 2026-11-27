@@ -52,7 +52,7 @@ deeptier:
   agent:
     runtime: python              # hot-swap to 'joule' later
   internal:
-    key: ${DEEP_TIER_INTERNAL_KEY:dt-internal-dev-key-2026}
+    key: ${DEEPTIER_INTERNAL_KEY:${DEEP_TIER_INTERNAL_KEY:dt-internal-dev-key-2026}}
   monte-carlo:
     default-seed: 20261121
     trials: 10000

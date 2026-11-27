@@ -94,12 +94,12 @@ class InternalToolsControllerTest {
     }
 
     @Test
-    void getTierMapReturns3Nodes() throws Exception {
+    void getTierMapReturnsLiveSeededNodes() throws Exception {
         mvc.perform(get("/internal/tools/get_tier_map")
                         .header("X-Internal-Key", KEY))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nodes.length()").value(3))
-                .andExpect(jsonPath("$.links.length()").value(2));
+                .andExpect(jsonPath("$.nodes.length()").value(5))
+                .andExpect(jsonPath("$.links.length()").value(4));
     }
     @Test
     void invalidInputReturnsProblemDetail400() throws Exception {

@@ -52,6 +52,7 @@ public class OptimizerService {
             String optionType,
             String description,
             String modeChain,
+            String targetSupplierId,
             BigDecimal freightCostInr,
             BigDecimal handlingCostInr,
             BigDecimal insuranceCostInr,
@@ -98,21 +99,23 @@ public class OptimizerService {
         List<RejectedOption> rejected = new ArrayList<>();
 
         // -- 1. AIR_LIFT_CRITICAL_LOT (Option 1) ------------------------------
-        // Freight ?2,40,000 cuts gap to 6 days
         BigDecimal airFreight = BigDecimal.valueOf(240_000);
+        BigDecimal airHandling = BigDecimal.valueOf(15_000);
+        BigDecimal airInsurance = BigDecimal.valueOf(10_000);
         int airResidualGap = 6;
         BigDecimal airLateLoss = dailyLoss.multiply(BigDecimal.valueOf(airResidualGap)); // 480,000
-        BigDecimal airTotalImpact = airFreight.add(airLateLoss); // 720,000
+        BigDecimal airTotalImpact = airFreight.add(airHandling).add(airInsurance).add(duty).add(airLateLoss);
 
         feasible.add(new RouteOption(
-                0, // assigned after sorting
+                0,
                 "OPT-AIRLIFT",
                 "AIR_LIFT_CRITICAL_LOT",
                 "Split shipment: air-lift 100kg critical lot to avoid assembly line shutdown, sea for balance",
                 "ROAD -> AIR -> ROAD",
+                null,
                 airFreight,
-                BigDecimal.valueOf(15_000),
-                BigDecimal.valueOf(10_000),
+                airHandling,
+                airInsurance,
                 duty,
                 BigDecimal.ZERO,
                 airResidualGap,
@@ -125,7 +128,6 @@ public class OptimizerService {
         ));
 
         // -- 2. WAIT (Baseline Option) ----------------------------------------
-        // Freight 0, full 15-day gap -> 15 * 80,000 = 1,200,000 late loss
         BigDecimal waitLateLoss = dailyLoss.multiply(BigDecimal.valueOf(gapDays));
         BigDecimal waitTotalImpact = waitLateLoss.add(duty);
 
@@ -135,6 +137,7 @@ public class OptimizerService {
                 "WAIT",
                 "Do nothing: await standard replenishment via ocean, absorbing full delay penalty",
                 "OCEAN -> ROAD",
+                null,
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
@@ -150,11 +153,12 @@ public class OptimizerService {
         ));
 
         // -- 3. WAREHOUSE_TRANSFER --------------------------------------------
-        // Transfer buffer from regional facility, freight ?1,80,000, 4 days residual gap
         BigDecimal whTransferFreight = BigDecimal.valueOf(180_000);
+        BigDecimal whHandling = BigDecimal.valueOf(10_000);
+        BigDecimal whInsurance = BigDecimal.valueOf(8_000);
         int whResidualGap = 4;
         BigDecimal whLateLoss = dailyLoss.multiply(BigDecimal.valueOf(whResidualGap)); // 320,000
-        BigDecimal whTotalImpact = whTransferFreight.add(whLateLoss); // 500,000
+        BigDecimal whTotalImpact = whTransferFreight.add(whHandling).add(whInsurance).add(whLateLoss);
 
         feasible.add(new RouteOption(
                 0,
@@ -162,10 +166,11 @@ public class OptimizerService {
                 "WAREHOUSE_TRANSFER",
                 "Buffer draw from domestic Pune warehouse stock transfer",
                 "DOMESTIC_ROAD",
+                null,
                 whTransferFreight,
-                BigDecimal.valueOf(5_000),
-                BigDecimal.valueOf(5_000),
-                BigDecimal.ZERO, // No import duty on domestic stock
+                whHandling,
+                whInsurance,
+                BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 whResidualGap,
                 whLateLoss,
@@ -185,12 +190,14 @@ public class OptimizerService {
             for (BackupSupplier supplier : vetted) {
                 int residualGap = Math.min(Math.max(gapDays, 0), supplier.getExpeditedLeadTimeDays());
                 BigDecimal freight = supplier.getExpeditedFreightInr();
+                BigDecimal handling = BigDecimal.valueOf(10_000);
+                BigDecimal insurance = BigDecimal.valueOf(8_000);
                 BigDecimal rerouteDuty = supplier.getUnitCostInr()
                         .multiply(BigDecimal.valueOf(120))
                         .multiply(supplier.getTariffRatePercent())
                         .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
                 BigDecimal rerouteLateLoss = dailyLoss.multiply(BigDecimal.valueOf(residualGap));
-                BigDecimal rerouteTotalImpact = freight.add(rerouteDuty).add(rerouteLateLoss);
+                BigDecimal rerouteTotalImpact = freight.add(handling).add(insurance).add(rerouteDuty).add(rerouteLateLoss);
                 String modeChain = "IN".equalsIgnoreCase(supplier.getCountry())
                         ? "DOMESTIC_ROAD"
                         : "AIR_OR_OCEAN -> ROAD";
@@ -205,9 +212,10 @@ public class OptimizerService {
                         String.format("Vetted backup reroute: %s (%s, quality %.2f)",
                                 supplier.getSupplierName(), locationLabel, supplier.getQualityScore()),
                         modeChain,
+                        supplier.getSupplierId(),
                         freight,
-                        BigDecimal.valueOf(10_000),
-                        BigDecimal.valueOf(8_000),
+                        handling,
+                        insurance,
                         rerouteDuty,
                         BigDecimal.ZERO,
                         residualGap,
@@ -246,8 +254,10 @@ public class OptimizerService {
             ));
         }
 
-        // Rank feasible options by total impact ascending
-        feasible.sort(Comparator.comparing(RouteOption::totalImpactInr));
+        // Rank feasible options by (totalImpactInr asc, targetSupplierId == null asc)
+        feasible.sort(Comparator
+                .comparing(RouteOption::totalImpactInr)
+                .thenComparing(o -> o.targetSupplierId() == null));
 
         List<RouteOption> rankedFeasible = new ArrayList<>();
         for (int i = 0; i < feasible.size(); i++) {
@@ -258,6 +268,7 @@ public class OptimizerService {
                     o.optionType(),
                     o.description(),
                     o.modeChain(),
+                    o.targetSupplierId(),
                     o.freightCostInr(),
                     o.handlingCostInr(),
                     o.insuranceCostInr(),

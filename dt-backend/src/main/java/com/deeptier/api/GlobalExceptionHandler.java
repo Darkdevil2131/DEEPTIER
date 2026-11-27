@@ -7,9 +7,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
 import java.net.URI;
@@ -55,7 +59,35 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(problem);
     }
 
-    @ExceptionHandler({IllegalStateTransitionException.class, IllegalStateException.class})
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ProblemDetail> handleMalformedJson(HttpMessageNotReadableException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
+                "Malformed JSON request body or invalid field format");
+        problem.setTitle("Malformed Request");
+        problem.setType(URI.create("https://deeptier.io/errors/malformed-request"));
+        problem.setProperty("code", "MALFORMED_JSON");
+        problem.setProperty("traceId", UUID.randomUUID().toString());
+        problem.setProperty("retryable", false);
+        problem.setProperty("timestamp", Instant.now().toString());
+
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        String detail = String.format("Invalid value '%s' for parameter '%s'", ex.getValue(), ex.getName());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
+        problem.setTitle("Invalid Parameter Type");
+        problem.setType(URI.create("https://deeptier.io/errors/invalid-parameter"));
+        problem.setProperty("code", "INVALID_PARAMETER");
+        problem.setProperty("traceId", UUID.randomUUID().toString());
+        problem.setProperty("retryable", false);
+        problem.setProperty("timestamp", Instant.now().toString());
+
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler({IllegalStateTransitionException.class, IllegalStateException.class, ObjectOptimisticLockingFailureException.class})
     public ResponseEntity<ProblemDetail> handleConflict(RuntimeException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
         problem.setTitle("State Transition Conflict");
@@ -66,6 +98,20 @@ public class GlobalExceptionHandler {
         problem.setProperty("timestamp", Instant.now().toString());
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(ex.getStatusCode(),
+                ex.getReason() != null ? ex.getReason() : ex.getMessage());
+        problem.setTitle("Upstream or Service Error");
+        problem.setType(URI.create("https://deeptier.io/errors/service-error"));
+        problem.setProperty("code", "SERVICE_ERROR");
+        problem.setProperty("traceId", UUID.randomUUID().toString());
+        problem.setProperty("retryable", ex.getStatusCode().is5xxServerError());
+        problem.setProperty("timestamp", Instant.now().toString());
+
+        return ResponseEntity.status(ex.getStatusCode()).body(problem);
     }
 
     @ExceptionHandler(ResourceNotFoundException.class)

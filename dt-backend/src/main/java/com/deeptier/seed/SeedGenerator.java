@@ -1,9 +1,13 @@
 package com.deeptier.seed;
 
+import com.deeptier.approval.ApprovalRequestRepository;
+import com.deeptier.approval.IdempotencyRecordRepository;
+import com.deeptier.approval.MockRfqRepository;
 import com.deeptier.audit.AuditEvent;
 import com.deeptier.domain.*;
 import com.deeptier.repo.AuditEventRepository;
 import com.deeptier.repo.BackupSupplierRepository;
+import com.deeptier.repo.DisruptionEventRepository;
 import com.deeptier.repo.SupplierLinkRepository;
 import com.deeptier.repo.SupplierNodeRepository;
 import lombok.RequiredArgsConstructor;
@@ -57,6 +61,10 @@ public class SeedGenerator {
     private final SupplierLinkRepository linkRepo;
     private final BackupSupplierRepository backupSupplierRepo;
     private final AuditEventRepository auditRepo;
+    private final MockRfqRepository mockRfqRepo;
+    private final ApprovalRequestRepository approvalRepo;
+    private final DisruptionEventRepository disruptionEventRepo;
+    private final IdempotencyRecordRepository idempotencyRepo;
 
     @Transactional
     public void reset(long seed) {
@@ -64,6 +72,10 @@ public class SeedGenerator {
 
         // 1. Wipe in FK-safe order
         auditRepo.deleteAll();
+        idempotencyRepo.deleteAll();
+        disruptionEventRepo.deleteAll();
+        mockRfqRepo.deleteAll();
+        approvalRepo.deleteAll();
         backupSupplierRepo.deleteAll();
         linkRepo.deleteAll();
         nodeRepo.deleteAll();

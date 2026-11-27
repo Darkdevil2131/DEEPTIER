@@ -10,6 +10,8 @@ import java.util.Optional;
 public interface AuditEventRepository extends JpaRepository<AuditEvent, String> {
     List<AuditEvent> findByScenarioIdOrderByOccurredAtAsc(String scenarioId);
 
+    List<AuditEvent> findAllByOrderByOccurredAtAsc();
+
     Optional<AuditEvent> findFirstByOrderByOccurredAtDesc();
 
     default Optional<AuditEvent> findLatest() {

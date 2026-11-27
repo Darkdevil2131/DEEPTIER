@@ -52,7 +52,7 @@ public class InternalToolsController {
 
         BigDecimal exposure = req.annualSpendInr()
                 .multiply(req.costFraction())
-                .multiply(BigDecimal.valueOf(req.deltaPercentagePoints()))
+                .multiply(req.deltaPercentagePoints())
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
 
         return ResponseEntity.ok(new ComputeExposureResponse(
@@ -163,9 +163,37 @@ public class InternalToolsController {
 
     @GetMapping("/get_tier_map")
     @Operation(summary = "Get supplier tier map for AI context",
-               description = "Returns a lightweight graph for AI agent context injection. " +
-                             "AI uses nodeIds/linkTypes as evidenceIds in its explanations.")
+               description = "Returns the live supplier graph from the database (or canonical fallback if empty) " +
+                             "for AI agent context injection. AI uses nodeIds/linkTypes as evidenceIds.")
     public ResponseEntity<InternalTierMapResponse> getTierMap() {
+        TierMapService.TierGraph graph = tierMapService.getGraph();
+        if (graph != null && graph.nodes() != null && !graph.nodes().isEmpty()) {
+            List<InternalTierMapResponse.TierNodeDto> nodes = graph.nodes().stream()
+                    .map(n -> new InternalTierMapResponse.TierNodeDto(
+                            n.getId(),
+                            n.getTier(),
+                            n.getName(),
+                            n.getCountry(),
+                            n.getLinkType() != null ? n.getLinkType().name() : "DECLARED",
+                            n.getConfidence() != null ? n.getConfidence().doubleValue() : 1.0
+                    ))
+                    .toList();
+            List<InternalTierMapResponse.TierLinkDto> links = graph.links() != null
+                    ? graph.links().stream()
+                            .map(l -> new InternalTierMapResponse.TierLinkDto(
+                                    l.getFromSupplierId(),
+                                    l.getToSupplierId(),
+                                    l.getHsCode(),
+                                    l.getAnnualSpendInr() != null ? l.getAnnualSpendInr() : BigDecimal.ZERO,
+                                    l.getCostFraction() != null ? l.getCostFraction() : BigDecimal.ONE,
+                                    l.getLinkType() != null ? l.getLinkType().name() : "DECLARED"
+                            ))
+                            .toList()
+                    : List.of();
+            String dc = graph.dataClass() != null ? graph.dataClass().name() : DataClass.SYNTHETIC.name();
+            return ResponseEntity.ok(new InternalTierMapResponse("get_tier_map", nodes, links, dc));
+        }
+
         return ResponseEntity.ok(new InternalTierMapResponse(
                 "get_tier_map",
                 List.of(
