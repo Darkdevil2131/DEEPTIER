@@ -7,9 +7,9 @@ A backend prototype for shipment decision support. It uses a LangGraph `StateGra
 - Route estimates use a small built-in connected network plus city-coordinate fallback. Feasible options are ranked deterministically by configurable cost, time, risk and reliability weights. User-provided disruption signals adjust delay/risk and can block a route. Results remain estimates—not navigable routes, live ETAs or carrier quotes.
 - Carrier records, contacts, certifications, capacities, coverage and reliability scores are fictional synthetic fixtures. The carrier agent filters capacity/coverage, calculates a service score and returns an approval-gated candidate; none of the demo contacts are bookable.
 - Risk checks are basic keyword and completeness rules. There is no live customs, sanctions, tariff, or jurisdiction screening.
-- Document intelligence validates structured fields, extracts labelled text, accepts PDF/PNG/JPEG/TIFF uploads, extracts PDF tables, and uses local Tesseract OCR for images. It records SHA-256 integrity hashes and PDF signature fields. Authenticity remains `not_verified` unless a future trusted cryptographic-verification adapter is configured.
+- Document intelligence validates structured fields and extracts embedded text and tables from PDFs. Image uploads return file information and integrity metadata. Authenticity is reported as `not_verified`.
 - Procurement ranks submitted carrier quotations and supplier offers, enforces quantity/certification gates, refuses cross-currency winners without FX data, and always requires human approval. It never books, purchases or contacts a provider.
-- The commercial API manages RFQ drafts, internal delivery, carrier responses, human approvals, dry-run booking intents, draft purchase orders and tracking events. SMTP is an explicit opt-in adapter; external booking and ERP posting fail closed.
+- Java owns approvals, mock RFQs, and ERP payloads. Python prepares recommendations for human review.
 - Every agent result carries provenance labels where applicable: `USER_PROVIDED`, `ESTIMATED`, or `SYNTHETIC`. The health endpoint confirms that no live logistics feeds are configured.
 - Offline mode is the default. Gemini is an optional narrative pass over tool output only; it cannot change calculations, call tools, or establish facts. Its model and API key are supplied via environment variables. It is disabled by default, and quota failures degrade to deterministic results.
 - A Google API key alone does not guarantee zero cost: account/project billing, quotas, and free eligibility are controlled by Google. Keep Gemini disabled unless the owner has confirmed the project is constrained to the no-cost tier and has billing disabled. Never commit a key.
@@ -27,7 +27,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Replace `TRADEPILOT_API_KEY` with a locally generated random secret in `.env`. Do not share it. Start the server:
+Set the same private `DEEPTIER_INTERNAL_KEY` on Java and Python. Set `TRADEPILOT_API_KEY` if you also need bearer-protected tools such as shipment history or document processing. Start the server:
 
 ```bash
 uvicorn tradepilot.main:app --reload
@@ -36,15 +36,15 @@ uvicorn tradepilot.main:app --reload
 API docs: <http://127.0.0.1:8000/docs>  
 Health: <http://127.0.0.1:8000/api/v1/health>
 
-Protected API calls use `Authorization: Bearer <TRADEPILOT_API_KEY>`. Health is public. Requests with a missing/invalid key return 401; protected routes return 503 if no API key is configured. A per-process request limit (default 60 requests/minute per source IP) returns 429 with `Retry-After`; it is not a distributed limiter.
+Java uses `X-Internal-Key` for both analysis endpoints. They also accept an analyst bearer key for existing trusted callers. Other protected routes use bearer keys. Keep the Python service and its credentials behind Java. Liveness and readiness checks are unauthenticated. The default rate limit is 60 requests per minute per source IP.
 
 ## API
 
-- `POST /api/v1/shipments/analyze` — deterministic offline analysis, SQLite save, optional Gemini narrative.
+- `POST /api/v1/deeptier/analyze` — extracts disruption parameters and requests Java calculations for the executive brief.
+- `POST /api/v1/shipments/analyze` — deterministic offline analysis, configured shipment storage, optional Gemini narrative.
 - `GET /api/v1/shipments/{shipment_id}` — retrieves an analysis saved in this SQLite database.
 - `POST /api/v1/documents/validate` — validates user-supplied document fields.
 - `POST /api/v1/documents/extract` and `/process` — synchronous or background PDF/image processing.
-- `/api/v1/rfqs`, `/approvals`, `/bookings`, `/purchase-orders` — approval-gated commercial workflow.
 - `POST /api/v1/evaluations/decision-quality` — historical/synthetic cost, ETA, agreement and risk-calibration metrics.
 - `GET /api/v1/audit`, `/metrics` and `POST /api/v1/admin/backups` — operational controls.
 - `GET /api/v1/health`
@@ -85,11 +85,11 @@ Use TLS at the hosting edge. Store API keys as host secrets. Do not log request 
 
 ### Deployment checks
 
-Configure a fresh private `TRADEPILOT_API_KEY` before rollout. Both hosting
-configurations probe `GET /api/v1/ready`. This returns 503 when the secret is
-missing or still set to the example value, or when SQLite cannot open a write
-transaction against the expected schema. The public liveness endpoint remains
-`GET /api/v1/health`. Both probes are exempt from client rate limits.
+The Cloud Foundry manifest uses the internal route `deeptier-ai.apps.internal`
+and probes `GET /api/v1/health`. Readiness at `GET /api/v1/ready` requires a
+configured shared or bearer key and usable storage. Both probes are exempt
+from client rate limits. See the [DEEPTIER handover](DEEPTIER_HANDOFF.md) for
+the Java callback and environment settings.
 A successful readiness probe describes the current instance only. Retrieving
 shipments after instance replacement requires the same persistent database.
 

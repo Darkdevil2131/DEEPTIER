@@ -1,37 +1,49 @@
-# TradePilot integration for DEEPTIER
+# DEEPTIER Python AI handover
 
-This directory starts from `Darkdevil2131/tradepilot-ai-agents` at `00b056b89fed89d765ebcf85fad49a738a0d9a76` and adds domestic freight planning over a 57-hub road graph, including Kochi–Chennai and other inland corridors. Run the Python service from `AI/` as a separate process alongside the Spring Boot service in `dt-backend/`.
+Run the Python service from `AI/` alongside the Java backend. Java is the
+frontend entrypoint and owns calculation results, approvals, mock RFQs, and
+ERP payloads. Keep Python reachable only by trusted services.
 
-## Run locally
+## Local configuration
 
-From the DEEPTIER repository root:
+| Variable | Service | Value |
+| --- | --- | --- |
+| `DEEPTIER_INTERNAL_KEY` | Java and Python | The same private value in both services |
+| `DEEPTIER_BACKEND_URL` | Python | Java's base URL, locally `http://127.0.0.1:8080` |
+| `DEEPTIER_PYTHON_URL` | Java | Python's base URL, locally `http://127.0.0.1:8000` |
+| `TRADEPILOT_API_KEY` | Python | Optional for Java analysis calls. Required for bearer-protected operations when separate role keys are absent. |
+| `GEMINI_ENABLED` | Python | `false` for deterministic extraction and briefs |
 
-```sh
-cd AI
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-cp .env.example .env
-```
+From `AI/`, install `requirements.txt` and start
+`python -m uvicorn tradepilot.main:app --host 127.0.0.1 --port 8000`.
 
-Set a private `TRADEPILOT_API_KEY` in `AI/.env`. Keep `GEMINI_ENABLED=false` for offline development. Start the service with `python -m uvicorn tradepilot.main:app --host 127.0.0.1 --port 8000`. A local OCR installation needs Tesseract. The included Dockerfile installs it.
+## Analysis contracts
 
-## Connect the Java backend
-
-The website backend can call `POST /internal/tools/tradepilot/shipments/analyze` on DEEPTIER's Java service. Send the TradePilot shipment JSON and DEEPTIER's existing `X-Internal-Key` header. Keep this request server-side. Java forwards the shipment to the six-agent workflow and returns its response, including the decision, gate reasons, alternatives and evidence. The existing tariff-signal and what-if functions use a separate contract.
-
-Set these environment variables on the Java service.
-
-| Variable | Purpose |
+| Python endpoint | Java caller |
 | --- | --- |
-| `DEEPTIER_PYTHON_URL` | TradePilot base URL. Defaults to `http://127.0.0.1:8000` for local development. |
-| `TRADEPILOT_API_KEY` | TradePilot bearer credential with analyst access. Keep it in the backend environment. |
-| `DEEPTIER_TRADEPILOT_TIMEOUT_SECONDS` | Request deadline including the response body. Defaults to 30 seconds. |
+| `POST /api/v1/deeptier/analyze` | Send `alertText`, known part/scenario IDs, and any supplied inventory and financial inputs. |
+| `POST /api/v1/shipments/analyze` | Send the shipment record. A sample is in `examples/analyze_shipment.json`. |
 
-The Java endpoint returns 401 for missing or incorrect internal authentication, 400 for malformed JSON, 422 for an invalid shipment, 429 when the upstream quota is reached, 502 for unexpected upstream responses, 503 when the service cannot be reached or used, and 504 when the gateway deadline expires. On a timeout, the Python service may still complete the original analysis. Avoid automatically resubmitting the same request.
+Send `X-Internal-Key` on both calls. Existing trusted callers can use an
+analyst bearer key. Keep both credentials off the frontend. The shipment
+endpoint can receive the proposed Java `/api/logistics/reroute` proxy request
+once that Java endpoint is wired.
 
-Use `examples/analyze_shipment.json` for a first request and `GET /api/v1/health` for a liveness check. Inspect the `agents` and `data_provenance` fields before displaying recommendations. See [the API integration guide](API_INTEGRATION_GUIDE.md) for details.
+Python uses Java's tier map, duty exposure, cover and what-if tools. It reads
+`dutyExposureInr`, supports both tier-link naming conventions, and sends
+fractional tariff changes without rounding. The Java DTOs must accept decimal
+values to preserve them end to end. The Python tool phase allows up to six
+seconds in aggregate with a four-second HTTP timeout per tool. Optional model
+calls have separate latency, so use deterministic mode for the short Java
+gateway deadline.
 
-Run `python -m pytest` from `AI/`. The copied GitHub workflows are included for reference. GitHub Actions only discovers workflows in the repository-root `.github/workflows/` directory.
+## Cloud Foundry
 
-Run `./mvnw -Dtest=TradePilotControllerTest test` from `dt-backend/` to check the Java adapter. With a local TradePilot process running, set `TRADEPILOT_TEST_URL` to its base URL and `TRADEPILOT_TEST_API_KEY` to its test credential before running Maven. The end-to-end test submits a 500 kg Kochi–Chennai shipment through Spring MVC, then closes the destination port and verifies the agents switch the remainder of the cargo from modeled ocean freight to rail.
+The `manifest.yml` defines a 512 MB Python app and probes
+`/api/v1/health`. Its internal route assumes the foundation supplies
+`apps.internal`. Configure the Java-to-Python network policy and Java callback
+address for the target space. The manifest contains no secrets. The liveness
+probe does not verify storage or Java connectivity.
+
+Run `python -m pytest` from `AI/`. See the [API guide](API_INTEGRATION_GUIDE.md)
+for mounted Python routes and examples.

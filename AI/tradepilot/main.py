@@ -108,12 +108,13 @@ async def health():
 
 @app.get("/api/v1/ready",tags=["health"])
 def readiness():
-    if not configured_api_key() or not store.ready() or not operations.ready():
+    auth_configured = configured_api_key() or os.getenv("DEEPTIER_INTERNAL_KEY", "").strip()
+    if not auth_configured or not store.ready() or not operations.ready():
         raise HTTPException(status_code=503, detail="Service is not ready")
     return {"status": "ready"}
 
 @app.post("/api/v1/shipments/analyze",response_model=ShipmentAnalysis,tags=["shipments"])
-def analyze_shipment(payload:ShipmentRequest, principal:Principal=Depends(require_role("analyst"))):
+def analyze_shipment(payload:ShipmentRequest, principal:Principal=Depends(require_internal_or_analyst)):
     try:
         analysis=orchestrator.analyze(payload)
         analysis.persistence=store.persistence_label
