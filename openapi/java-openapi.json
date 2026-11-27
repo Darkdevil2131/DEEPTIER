@@ -373,6 +373,35 @@
         }
       }
     },
+    "/api/auth/register" : {
+      "post" : {
+        "tags" : [ "Authentication" ],
+        "summary" : "Register a new analyst user and obtain a JWT Bearer token",
+        "operationId" : "register",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/login" : {
       "post" : {
         "tags" : [ "Authentication" ],
@@ -2134,14 +2163,18 @@
           }
         }
       },
-      "LoginRequest" : {
+      "RegisterRequest" : {
         "required" : [ "password", "username" ],
         "type" : "object",
         "properties" : {
           "username" : {
+            "maxLength" : 128,
+            "minLength" : 3,
             "type" : "string"
           },
           "password" : {
+            "maxLength" : 100,
+            "minLength" : 6,
             "type" : "string"
           }
         }
@@ -2159,6 +2192,18 @@
             "type" : "string"
           },
           "role" : {
+            "type" : "string"
+          }
+        }
+      },
+      "LoginRequest" : {
+        "required" : [ "password", "username" ],
+        "type" : "object",
+        "properties" : {
+          "username" : {
+            "type" : "string"
+          },
+          "password" : {
             "type" : "string"
           }
         }
@@ -2773,10 +2818,10 @@
             "type" : "string",
             "format" : "date-time"
           },
-          "prevHash" : {
+          "hash" : {
             "type" : "string"
           },
-          "hash" : {
+          "prevHash" : {
             "type" : "string"
           }
         }

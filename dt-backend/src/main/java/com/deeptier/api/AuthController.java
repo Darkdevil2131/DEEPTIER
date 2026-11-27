@@ -2,6 +2,7 @@ package com.deeptier.api;
 
 import com.deeptier.api.dto.LoginRequest;
 import com.deeptier.api.dto.LoginResponse;
+import com.deeptier.api.dto.RegisterRequest;
 import com.deeptier.api.dto.UserInfoResponse;
 import com.deeptier.security.DemoUserStore;
 import com.deeptier.security.JwtService;
@@ -24,6 +25,15 @@ public class AuthController {
 
     private final DemoUserStore userStore;
     private final JwtService jwtService;
+
+    @PostMapping("/register")
+    @Operation(summary = "Register a new analyst user and obtain a JWT Bearer token")
+    public ResponseEntity<LoginResponse> register(@Valid @RequestBody RegisterRequest req) {
+        DemoUserStore.DemoUser user = userStore.register(req.username(), req.password());
+        String token = jwtService.generateToken(user.username(), user.role());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new LoginResponse(token, "Bearer", user.username(), user.role()));
+    }
 
     @PostMapping("/login")
     @Operation(summary = "Authenticate and obtain a JWT Bearer token")

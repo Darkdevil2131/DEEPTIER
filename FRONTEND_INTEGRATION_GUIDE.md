@@ -16,8 +16,8 @@
 ---
 
 ## 2. Authentication & RBAC (Stateless JWT)
-All `/api/**` endpoints (except `/api/auth/login`) require `Authorization: Bearer <accessToken>`.
-Obtain a token via `POST /api/auth/login` with `{ "username": "...", "password": "..." }`, and inspect the active principal via `GET /api/auth/me`.
+All `/api/**` endpoints (except `/api/auth/login` and `/api/auth/register`) require `Authorization: Bearer <accessToken>`.
+Obtain a token via `POST /api/auth/login` (or create a new `ROLE_ANALYST` account via `POST /api/auth/register`) with `{ "username": "...", "password": "..." }`, and inspect the active principal via `GET /api/auth/me`.
 
 | Demo Account | Password | Role | Permitted Actions |
 | :--- | :--- | :--- | :--- |
@@ -33,7 +33,7 @@ Obtain a token via `POST /api/auth/login` with `{ "username": "...", "password":
 
 | Frontend Capability | Backend Endpoint(s) | Auth / Role | Required Data | Supported UI States | Verified |
 | :--- | :--- | :--- | :--- | :--- | :---: |
-| **JWT Login & Session** | `POST /api/auth/login`, `GET /api/auth/me` | Public (`login`), Bearer (`me`) | `username`, `password` | Login form, Bearer token storage, `401` invalid credentials | YES |
+| **JWT Login, Sign-Up & Session** | `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me` | Public (`login`, `register`), Bearer (`me`) | `username`, `password` | Login/Register forms, Bearer token storage, `401` invalid credentials, `409` duplicate username | YES |
 | **Demo Seed / Reset** | `POST /api/seed/reset?seed=20261121` | `ROLE_ADMIN` | Optional `seed` | Loading, Reset (`5` nodes, `4` links), `403` non-admin, Error | YES |
 | **Multi-Tier Supply Graph** | `GET /api/tier-map/graph`, `/nodes`, `/links` | `ANALYST` / `APPROVER` / `ADMIN` | None | Loading, Populated Graph, Empty (`totalNodes=0`), Error | YES |
 | **CSV BOM Onboarding** | `POST /api/supply-chain/import/csv?mode=replace\|append`, `GET /api/supply-chain/import/template` | `ANALYST` / `APPROVER` / `ADMIN` | Multipart `.csv` file (14 columns) | Uploading, Success, Row Validation Error (`400` with line/col), Server Error | YES |

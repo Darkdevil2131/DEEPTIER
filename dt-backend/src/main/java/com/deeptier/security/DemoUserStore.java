@@ -1,5 +1,6 @@
 package com.deeptier.security;
 
+import com.deeptier.approval.IllegalStateTransitionException;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -33,6 +34,20 @@ public class DemoUserStore {
                     .role(role)
                     .build());
         }
+    }
+
+    @Transactional
+    public DemoUser register(String username, String rawPassword) {
+        String normalized = username.trim().toLowerCase();
+        if (appUserRepository.findByUsernameIgnoreCase(normalized).isPresent()) {
+            throw new IllegalStateTransitionException("User already exists: " + normalized);
+        }
+        AppUser saved = appUserRepository.save(AppUser.builder()
+                .username(normalized)
+                .passwordHash(passwordEncoder.encode(rawPassword))
+                .role("ROLE_ANALYST")
+                .build());
+        return new DemoUser(saved.getUsername(), saved.getPasswordHash(), saved.getRole());
     }
 
     @Transactional(readOnly = true)

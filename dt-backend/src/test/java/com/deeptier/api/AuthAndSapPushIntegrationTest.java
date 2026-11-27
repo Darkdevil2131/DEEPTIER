@@ -34,6 +34,7 @@ class AuthAndSapPushIntegrationTest {
     @BeforeEach
     void setUp() {
         seedGenerator.reset(20261121L);
+        appUserRepo.findByUsernameIgnoreCase("new.analyst@deeptier.local").ifPresent(appUserRepo::delete);
     }
 
     private String loginAndGetToken(String username, String password) throws Exception {
@@ -151,5 +152,31 @@ class AuthAndSapPushIntegrationTest {
         mvc.perform(post("/api/seed/reset?seed=20261121")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk());
+
+        // 12. Public Sign-Up (POST /api/auth/register) creates ROLE_ANALYST in app_user and blocks duplicates
+        MvcResult regRes = mvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"new.analyst@deeptier.local\",\"password\":\"Secret@123\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.username").value("new.analyst@deeptier.local"))
+                .andExpect(jsonPath("$.role").value("ROLE_ANALYST"))
+                .andReturn();
+        String registeredToken = mapper.readTree(regRes.getResponse().getContentAsString()).path("accessToken").asText();
+
+        mvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + registeredToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("new.analyst@deeptier.local"))
+                .andExpect(jsonPath("$.role").value("ROLE_ANALYST"));
+
+        // Duplicate username -> 409 Conflict
+        mvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"new.analyst@deeptier.local\",\"password\":\"Secret@123\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STATE_CONFLICT"));
+
+        // Can log in with newly registered user
+        loginAndGetToken("new.analyst@deeptier.local", "Secret@123");
     }
 }

@@ -56,6 +56,7 @@ class FullApiCoverageIntegrationTest {
 
         List<String> expectedPaths = List.of(
                 "/api/auth/login",
+                "/api/auth/register",
                 "/api/auth/me",
                 "/api/seed/reset",
                 "/api/tier-map/nodes",
