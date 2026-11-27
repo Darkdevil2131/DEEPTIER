@@ -25,7 +25,7 @@ Obtain a token via `POST /api/auth/login` with `{ "username": "...", "password":
 | `approver@deeptier.local` | `Approver@123` | `ROLE_APPROVER` | All Analyst actions + `POST /api/approvals/{id}/approve`, `/reject`, `POST /api/rfqs/{id}/push-sap` (self-approval blocked) |
 | `admin@deeptier.local` | `Admin@123` | `ROLE_ADMIN` | All Approver actions + `POST /api/seed/reset` |
 
-> **Toggle:** Set `DEEPTIER_AUTH_ENABLED=false` (`deeptier.auth.enabled=false`) to disable JWT enforcement during local UI prototyping. `/internal/**` remains protected solely by `X-Internal-Key`.
+> **Persistence & Toggle:** These 3 accounts are seeded into the `app_user` table (BCrypt-hashed, auto-created in PostgreSQL / SAP HANA Cloud, and preserved across `POST /api/seed/reset`). Set `DEEPTIER_AUTH_ENABLED=false` (`deeptier.auth.enabled=false`) to disable JWT enforcement during local UI prototyping. `/internal/**` remains protected solely by `X-Internal-Key`.
 
 ---
 
