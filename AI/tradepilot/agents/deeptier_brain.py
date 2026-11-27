@@ -240,6 +240,8 @@ class DeepTierBrain:
                 warnings.append(f"{name} unavailable: {exc}")
             except TimeoutError:
                 warnings.append(f"{name} unavailable: Java tool budget exceeded")
+            except Exception as exc:
+                warnings.append(f"{name} unavailable: {type(exc).__name__}")
             else:
                 responses[name] = result
                 return result
