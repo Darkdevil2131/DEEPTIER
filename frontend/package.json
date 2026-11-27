@@ -1,0 +1,26 @@
+{
+  "name": "deeptier-cockpit-preview",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs && node offline-ui.mjs",
+    "test:integration": "node build.mjs && node live-ui.mjs"
+  },
+  "dependencies": {
+    "@turf/boolean-point-in-polygon": "^7.4.0",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.82.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-leaflet": "^5.0.0",
+    "swr": "^2.5.1",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "happy-dom": "21.0.4",
+    "vite": "^8.4.0"
+  }
+}
