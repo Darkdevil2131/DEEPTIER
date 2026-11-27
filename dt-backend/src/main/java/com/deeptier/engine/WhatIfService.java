@@ -74,9 +74,41 @@ public class WhatIfService {
         int leadDays = leadTimeDays != null ? leadTimeDays : 30;
         BigDecimal dailyLoss = lateCostPerDayInr != null ? lateCostPerDayInr : BigDecimal.valueOf(80_000);
 
-        // 1. Exposure
-        ExposureService.ExposureSummary exposure = exposureService.calculateExposure(
-                code, origin, deltaRate, BigDecimal.valueOf(100));
+        // 1. Exposure (honor explicit annualSpendInr + costFraction overrides when supplied)
+        ExposureService.ExposureSummary exposure;
+        if (annualSpendInr != null && costFraction != null) {
+            BigDecimal affectedSpend = annualSpendInr.multiply(costFraction);
+            BigDecimal dutyDelta = affectedSpend
+                    .multiply(deltaRate)
+                    .divide(BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
+            ExposureService.PartExposure overrideItem = new ExposureService.PartExposure(
+                    "OVERRIDE-INPUT",
+                    "REQUEST",
+                    "OVERRIDE",
+                    "Request Override Basis",
+                    origin,
+                    code,
+                    0,
+                    annualSpendInr,
+                    costFraction,
+                    affectedSpend,
+                    dutyDelta,
+                    DataClass.OBSERVED
+            );
+            exposure = new ExposureService.ExposureSummary(
+                    code,
+                    origin,
+                    deltaRate,
+                    BigDecimal.valueOf(100),
+                    dutyDelta,
+                    List.of(overrideItem),
+                    DataClass.OBSERVED,
+                    List.of("EV-REQUEST-OVERRIDE")
+            );
+        } else {
+            exposure = exposureService.calculateExposure(
+                    code, origin, deltaRate, BigDecimal.valueOf(100));
+        }
 
         // 2. Cover
         CoverService.CoverResult cover = coverService.calculateCover(

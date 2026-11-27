@@ -298,3 +298,39 @@ def test_customs_delay_classifies_as_logistics_and_extracts_delay():
     # "customs" alone without rate or logistics evidence must not trigger TARIFF_SHOCK
     bare_customs = _extract_deterministic("Customs inspection notice")
     assert bare_customs["signalType"] == "UNPARSED"
+
+
+def test_tier_map_filters_by_hs_and_origin_country_and_sums_matching_links():
+    captured_exposure_args = {}
+
+    class MultiLinkJavaFixture:
+        def get_tier_map(self):
+            return {
+                "nodes": [
+                    {"nodeId": "NODE-OEM", "country": "IN"},
+                    {"nodeId": "NODE-T1-ALPHA", "country": "IN"},
+                    {"nodeId": "NODE-T2-BETA", "country": "CN"},
+                    {"nodeId": "NODE-T2-RAJKOT", "country": "IN"},
+                ],
+                "links": [
+                    {"from": "NODE-T1-ALPHA", "to": "NODE-T2-BETA", "hsCode": "7325", "annualSpendInr": 4800000, "costFraction": 0.6},
+                    {"from": "NODE-T1-ALPHA", "to": "NODE-T2-RAJKOT", "hsCode": "7325", "annualSpendInr": 1200000, "costFraction": 0.25},
+                ],
+            }
+
+        def compute_cover(self, *_):
+            return {"daysOfCover": 15}
+
+        def compute_exposure(self, **kwargs):
+            captured_exposure_args.update(kwargs)
+            return {"dutyExposureInr": 576000}
+
+        def simulate_whatif(self, payload):
+            return {"scenarioId": payload["scenarioId"], "recoveryOptions": []}
+
+    result = DeepTierBrain(MultiLinkJavaFixture).analyze(
+        DeepTierAnalyzeRequest(alertText="20% tariff on HSN 7325 from China")
+    )
+    assert captured_exposure_args["annual_spend_inr"] == 4800000
+    assert captured_exposure_args["cost_fraction"] == 0.6
+    assert result["approvalDraft"]["estimatedExposureInr"] == 576000

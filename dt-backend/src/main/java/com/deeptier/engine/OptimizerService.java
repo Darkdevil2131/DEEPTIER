@@ -46,6 +46,9 @@ public class OptimizerService {
         this.backupSupplierRepo = backupSupplierRepo;
     }
 
+    private static final BigDecimal DEFAULT_LOT_QTY = BigDecimal.valueOf(300);
+    private static final BigDecimal DEFAULT_UNIT_COST_INR = BigDecimal.valueOf(2_400);
+
     public record RouteOption(
             int rank,
             String optionId,
@@ -53,6 +56,8 @@ public class OptimizerService {
             String description,
             String modeChain,
             String targetSupplierId,
+            BigDecimal unitCostInr,
+            BigDecimal estimatedLandedCostInr,
             BigDecimal freightCostInr,
             BigDecimal handlingCostInr,
             BigDecimal insuranceCostInr,
@@ -65,7 +70,38 @@ public class OptimizerService {
             double etaDaysP90,
             boolean recommended,
             List<String> evidenceIds
-    ) {}
+    ) {
+        public RouteOption(
+                int rank,
+                String optionId,
+                String optionType,
+                String description,
+                String modeChain,
+                String targetSupplierId,
+                BigDecimal freightCostInr,
+                BigDecimal handlingCostInr,
+                BigDecimal insuranceCostInr,
+                BigDecimal modeledDutyInr,
+                BigDecimal holdingCostInr,
+                int residualGapDays,
+                BigDecimal expectedLateCostInr,
+                BigDecimal totalImpactInr,
+                double etaDaysP50,
+                double etaDaysP90,
+                boolean recommended,
+                List<String> evidenceIds) {
+            this(rank, optionId, optionType, description, modeChain, targetSupplierId,
+                    DEFAULT_UNIT_COST_INR,
+                    DEFAULT_LOT_QTY.multiply(DEFAULT_UNIT_COST_INR)
+                            .add(freightCostInr != null ? freightCostInr : BigDecimal.ZERO)
+                            .add(handlingCostInr != null ? handlingCostInr : BigDecimal.ZERO)
+                            .add(insuranceCostInr != null ? insuranceCostInr : BigDecimal.ZERO)
+                            .add(modeledDutyInr != null ? modeledDutyInr : BigDecimal.ZERO),
+                    freightCostInr, handlingCostInr, insuranceCostInr, modeledDutyInr, holdingCostInr,
+                    residualGapDays, expectedLateCostInr, totalImpactInr, etaDaysP50, etaDaysP90,
+                    recommended, evidenceIds);
+        }
+    }
 
     public record RejectedOption(
             String optionId,
@@ -205,6 +241,15 @@ public class OptimizerService {
                         ? supplier.getHubLocation()
                         : supplier.getCountry();
 
+                BigDecimal unitCost = supplier.getUnitCostInr() != null
+                        ? supplier.getUnitCostInr()
+                        : DEFAULT_UNIT_COST_INR;
+                BigDecimal landedCost = DEFAULT_LOT_QTY.multiply(unitCost)
+                        .add(freight)
+                        .add(handling)
+                        .add(insurance)
+                        .add(rerouteDuty);
+
                 feasible.add(new RouteOption(
                         0,
                         "OPT-REROUTE-" + supplier.getSupplierId(),
@@ -213,6 +258,8 @@ public class OptimizerService {
                                 supplier.getSupplierName(), locationLabel, supplier.getQualityScore()),
                         modeChain,
                         supplier.getSupplierId(),
+                        unitCost,
+                        landedCost,
                         freight,
                         handling,
                         insurance,
@@ -269,6 +316,8 @@ public class OptimizerService {
                     o.description(),
                     o.modeChain(),
                     o.targetSupplierId(),
+                    o.unitCostInr(),
+                    o.estimatedLandedCostInr(),
                     o.freightCostInr(),
                     o.handlingCostInr(),
                     o.insuranceCostInr(),

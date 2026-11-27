@@ -253,20 +253,46 @@ class DeepTierBrain:
             cover_task = pool.submit(client.compute_cover, units_on_hand, daily_demand, effective_lead)
             tier_map = collect("get_tier_map", tier_task)
             if tier_map is not None:
+                node_countries: dict[str, str] = {}
                 for node in tier_map.get("nodes") or []:
                     if isinstance(node, dict) and node.get("nodeId"):
-                        evidence_ids.append(str(node["nodeId"]))
+                        nid = str(node["nodeId"])
+                        evidence_ids.append(nid)
+                        if node.get("country"):
+                            node_countries[nid] = str(node["country"]).upper()
+
+                origin_country = str(extracted.get("originCountry") or "UNKNOWN").upper()
+                matched_links: list[dict[str, Any]] = []
                 for link in tier_map.get("links") or []:
                     if not isinstance(link, dict) or link.get("hsCode") != extracted["affectedHsCode"]:
                         continue
-                    for node_id in (link.get("from") or link.get("fromNodeId"),
-                                    link.get("to") or link.get("toNodeId")):
+                    from_id = link.get("from") or link.get("fromNodeId")
+                    to_id = link.get("to") or link.get("toNodeId")
+                    if origin_country != "UNKNOWN":
+                        from_country = node_countries.get(str(from_id), "")
+                        to_country = node_countries.get(str(to_id), "")
+                        if (from_country or to_country) and origin_country not in (from_country, to_country):
+                            continue
+                    matched_links.append(link)
+                    for node_id in (from_id, to_id):
                         if node_id and str(node_id) not in evidence_ids:
                             evidence_ids.append(str(node_id))
-                    if req.annualSpendInr is None and link.get("annualSpendInr") is not None:
-                        annual_spend = float(link["annualSpendInr"])
-                    if req.costFraction is None and link.get("costFraction") is not None:
-                        cost_fraction = float(link["costFraction"])
+
+                if matched_links and req.annualSpendInr is None and req.costFraction is None:
+                    if len(matched_links) == 1:
+                        only = matched_links[0]
+                        if only.get("annualSpendInr") is not None:
+                            annual_spend = float(only["annualSpendInr"])
+                        if only.get("costFraction") is not None:
+                            cost_fraction = float(only["costFraction"])
+                    else:
+                        total_affected = sum(
+                            float(l.get("annualSpendInr") or 0.0) * float(l.get("costFraction") if l.get("costFraction") is not None else 1.0)
+                            for l in matched_links
+                        )
+                        if total_affected > 0:
+                            annual_spend = total_affected
+                            cost_fraction = 1.0
                 if extracted["affectedHsCode"] != "UNKNOWN":
                     evidence_ids.append(f"HS-{extracted['affectedHsCode']}")
 

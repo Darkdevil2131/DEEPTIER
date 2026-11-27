@@ -3,6 +3,7 @@ package com.deeptier.engine;
 import com.deeptier.api.dto.AnalyzeDisruptionRequest;
 import com.deeptier.api.dto.AnalyzeDisruptionResponse;
 import com.deeptier.audit.AuditService;
+import com.deeptier.domain.DataClass;
 import com.deeptier.domain.DisruptionEvent;
 import com.deeptier.repo.DisruptionEventRepository;
 import com.deeptier.sap.AgentGateway;
@@ -37,12 +38,14 @@ public class DisruptionAgentService {
 
     private static final Pattern HS_PATTERN = Pattern.compile("\\bHSN?(?:\\s*code)?[\\s:#-]*(\\d{4,8})\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern FROM_TO_PCT_PATTERN = Pattern.compile(
-            "from\\s+(\\d+(?:\\.\\d+)?)\\s*%\\s+to\\s+(\\d+(?:\\.\\d+)?)\\s*%", Pattern.CASE_INSENSITIVE);
+            "\\bfrom\\s+(\\d+(?:\\.\\d+)?)\\s*(?:%|percent)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\s*(?:%|percent)", Pattern.CASE_INSENSITIVE);
     private static final Pattern TO_PCT_PATTERN = Pattern.compile(
             "to\\s+(\\d+(?:\\.\\d+)?)\\s*%\\s*(?:tariff|duty)", Pattern.CASE_INSENSITIVE);
     private static final Pattern PCT_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:%|percent|percentage\\s*points?)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TARIFF_WORD_PATTERN = Pattern.compile("\\b(?:tariffs?|dut(?:y|ies)|levy|customs)\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern LOGISTICS_WORD_PATTERN = Pattern.compile("\\b(?:congestion|strike|blockade|delay(?:ed|s)?|stoppage|port\\s+closure)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern DELAY_PATTERN = Pattern.compile(
-            "(?:delay(?:ed)?(?:\\s+by)?\\s*|lead\\s*time\\s*\\+?\\s*)(\\d+)\\s*days?\\b|\\b(\\d+)\\s*days?\\s*(?:[a-z]+\\s+){0,2}(?:delay|stoppage|lead)",
+            "(?:delay(?:ed)?(?:\\s+(?:by|of))?\\s*|lead\\s*time\\s*\\+?\\s*)(\\d+)\\s*days?\\b|\\b(\\d+)\\s*days?\\s*(?:[a-z]+\\s+){0,2}(?:delay|stoppage|lead)",
             Pattern.CASE_INSENSITIVE);
 
     private final AgentGateway agentGateway;
@@ -67,23 +70,28 @@ public class DisruptionAgentService {
             warnings.addAll(brainResult.warnings());
         }
 
-        // Java ALWAYS owns 100% of financial, inventory, Monte Carlo, and optimizer math.
-        int baseLeadTime = req.leadTimeDays() != null ? req.leadTimeDays() : 30;
-        int effectiveLeadTime = baseLeadTime + Math.max(0, brainResult.delayDays());
+        boolean isUnparsed = "UNPARSED".equalsIgnoreCase(brainResult.signalType());
+        WhatIfService.WhatIfSimulationResponse simulation;
+        if (isUnparsed) {
+            simulation = emptyUnparsedSimulation(scenarioId, brainResult.affectedHsCode(), brainResult.originCountry());
+        } else {
+            int baseLeadTime = req.leadTimeDays() != null ? req.leadTimeDays() : 30;
+            int effectiveLeadTime = baseLeadTime + Math.max(0, brainResult.delayDays());
 
-        WhatIfService.WhatIfSimulationResponse simulation = whatIfService.simulate(
-                scenarioId,
-                brainResult.affectedHsCode(),
-                brainResult.originCountry(),
-                brainResult.tariffDeltaPercent(),
-                req.annualSpendInr(),
-                req.costFraction(),
-                req.unitsOnHand(),
-                req.dailyDemand(),
-                effectiveLeadTime,
-                req.lateCostPerDayInr(),
-                req.seed()
-        );
+            simulation = whatIfService.simulate(
+                    scenarioId,
+                    brainResult.affectedHsCode(),
+                    brainResult.originCountry(),
+                    brainResult.tariffDeltaPercent(),
+                    req.annualSpendInr(),
+                    req.costFraction(),
+                    req.unitsOnHand(),
+                    req.dailyDemand(),
+                    effectiveLeadTime,
+                    req.lateCostPerDayInr(),
+                    req.seed()
+            );
+        }
 
         Set<String> mergedEvidence = new LinkedHashSet<>();
         if (brainResult.evidenceIds() != null) {
@@ -143,6 +151,7 @@ public class DisruptionAgentService {
                 saved.getExtractionEngine(),
                 backendStatus,
                 List.copyOf(warnings),
+                isUnparsed,
                 saved.getExecutiveBrief(),
                 evidenceList,
                 simulation,
@@ -154,7 +163,10 @@ public class DisruptionAgentService {
         String text = alertText != null ? alertText : "";
         Matcher hsMatcher = HS_PATTERN.matcher(text);
         boolean hasHs = hsMatcher.find();
-        String hsCode = hasHs ? hsMatcher.group(1) : null;
+        String hsCode = hasHs ? hsMatcher.group(1) : "UNKNOWN";
+
+        boolean hasTariffWord = TARIFF_WORD_PATTERN.matcher(text).find();
+        boolean hasLogisticsWord = LOGISTICS_WORD_PATTERN.matcher(text).find();
 
         Matcher fromToMatcher = FROM_TO_PCT_PATTERN.matcher(text);
         Matcher toPctMatcher = TO_PCT_PATTERN.matcher(text);
@@ -170,6 +182,7 @@ public class DisruptionAgentService {
         } else if (pctMatcher.find()) {
             tariffDelta = new BigDecimal(pctMatcher.group(1));
         }
+        boolean hasRate = tariffDelta != null;
 
         Matcher delayMatcher = DELAY_PATTERN.matcher(text);
         boolean hasDelay = delayMatcher.find();
@@ -182,49 +195,56 @@ public class DisruptionAgentService {
         }
 
         String lower = text.toLowerCase(Locale.ROOT);
-        String originCountry = "CN";
-        if (lower.contains("vietnam")) {
+        String originCountry = "UNKNOWN";
+        if (lower.contains("china")) {
+            originCountry = "CN";
+        } else if (lower.contains("vietnam")) {
             originCountry = "VN";
         } else if (lower.contains("germany")) {
             originCountry = "DE";
         } else if (lower.contains("japan")) {
             originCountry = "JP";
-        } else if (lower.contains("india") && !lower.contains("china")) {
+        } else if (lower.contains("india")) {
             originCountry = "IN";
         }
 
-        // If neither HS/HSN code nor tariff/delay signal is present, do NOT fabricate HS 7325 / 20%!
-        if (!hasHs && tariffDelta == null && !hasDelay) {
+        String signalType;
+        if (fromToMatcher.reset().find() || (hasTariffWord && hasRate)) {
+            signalType = "TARIFF_SHOCK";
+        } else if (hasDelay || hasLogisticsWord) {
+            signalType = "LOGISTICS_DISRUPTION";
+        } else if (hasHs) {
+            signalType = "HS_REFERENCE";
+        } else {
+            signalType = "UNPARSED";
+        }
+
+        if ("UNPARSED".equals(signalType)) {
             return new AgentGateway.DeepTierBrainResult(
                     "UNKNOWN",
                     originCountry,
                     BigDecimal.ZERO,
                     0,
                     "UNPARSED",
-                    new BigDecimal("0.2000"),
+                    new BigDecimal("0.2500"),
                     JAVA_FALLBACK_ENGINE,
                     null,
                     List.of("EV-JAVA-FALLBACK"),
                     "fallback",
-                    List.of("No HS/HSN code, tariff percentage, or delay duration detected; human review required.")
+                    List.of("No HS/HSN code, tariff signal, or logistics disruption detected; human review required.")
             );
         }
 
-        String resolvedHs = hsCode != null ? hsCode : "7325";
-        BigDecimal resolvedTariff = tariffDelta != null ? tariffDelta : BigDecimal.ZERO;
+        BigDecimal resolvedTariff = "TARIFF_SHOCK".equals(signalType) && tariffDelta != null
+                ? tariffDelta
+                : BigDecimal.ZERO;
 
-        boolean hasLogisticsTerms = lower.contains("port") || lower.contains("congestion")
-                || lower.contains("strike") || lower.contains("blockade") || lower.contains("delay");
-        String signalType = (hasLogisticsTerms && resolvedTariff.compareTo(BigDecimal.ZERO) == 0)
-                ? "LOGISTICS_DISRUPTION"
-                : "TARIFF_SHOCK";
-
-        BigDecimal confidence = (hasHs && tariffDelta != null)
+        BigDecimal confidence = (hasHs || (hasTariffWord && hasRate))
                 ? new BigDecimal("0.8500")
-                : new BigDecimal("0.6500");
+                : new BigDecimal("0.5500");
 
         return new AgentGateway.DeepTierBrainResult(
-                resolvedHs,
+                hsCode,
                 originCountry,
                 resolvedTariff,
                 delayDays,
@@ -238,6 +258,32 @@ public class DisruptionAgentService {
         );
     }
 
+    private static WhatIfService.WhatIfSimulationResponse emptyUnparsedSimulation(
+            String scenarioId, String hsCode, String originCountry) {
+        ExposureService.ExposureSummary zeroExposure = new ExposureService.ExposureSummary(
+                hsCode != null ? hsCode : "UNKNOWN",
+                originCountry != null ? originCountry : "UNKNOWN",
+                BigDecimal.ZERO,
+                BigDecimal.valueOf(100),
+                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                List.of(),
+                DataClass.ASSUMED,
+                List.of()
+        );
+        return new WhatIfService.WhatIfSimulationResponse(
+                scenarioId,
+                DataClass.ASSUMED,
+                List.of(),
+                zeroExposure,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                0L,
+                "Simulation skipped for UNPARSED alert; human review required"
+        );
+    }
+
     private String buildBrief(
             String partCode,
             AgentGateway.DeepTierBrainResult extracted,
@@ -247,19 +293,19 @@ public class DisruptionAgentService {
         BigDecimal exposureInr = sim.tariffShock() != null && sim.tariffShock().totalExposureInr() != null
                 ? sim.tariffShock().totalExposureInr()
                 : BigDecimal.ZERO;
-        String coverDays = sim.inventory() != null && sim.inventory().coverDaysDisplay() != null
-                ? sim.inventory().coverDaysDisplay()
-                : "UNKNOWN";
-        int gapDays = sim.inventory() != null ? sim.inventory().gapDays() : 0;
 
         if ("UNPARSED".equals(extracted.signalType())) {
             return String.format(
                     "Alert for part %s could not be mapped to an HS/HSN code, tariff delta, or delay (%s). "
-                            + "Modeled duty exposure is INR %s with %s days of cover (gap %d days). "
+                            + "Modeled duty exposure is INR %s and simulation was skipped. "
                             + "Human review is required before taking any sourcing action.",
-                    partCode, extracted.extractionEngine(), exposureInr.toPlainString(), coverDays, gapDays);
+                    partCode, extracted.extractionEngine(), exposureInr.toPlainString());
         }
 
+        String coverDays = sim.inventory() != null && sim.inventory().coverDaysDisplay() != null
+                ? sim.inventory().coverDaysDisplay()
+                : "UNKNOWN";
+        int gapDays = sim.inventory() != null ? sim.inventory().gapDays() : 0;
         String topStrategy = (sim.recoveryOptions() != null && !sim.recoveryOptions().isEmpty())
                 ? sim.recoveryOptions().getFirst().optionType()
                 : "HUMAN_REVIEW_REQUIRED";

@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 public record RerouteRequest(
         @Size(max = 80)
@@ -39,8 +40,35 @@ public record RerouteRequest(
         List<DisruptionInput> disruptions,
 
         @Valid
-        ImpactScenarioInput impactScenario
+        ImpactScenarioInput impactScenario,
+
+        @Valid
+        List<DocumentInput> documents,
+
+        @DecimalMin("0.0")
+        BigDecimal declaredValueUsd,
+
+        @Size(max = 20)
+        String incoterm,
+
+        @Valid
+        List<CarrierQuoteInput> carrierQuotes,
+
+        Boolean useDemoDefaults
 ) {
+    public RerouteRequest(
+            String shipmentId,
+            String origin,
+            String destination,
+            String cargoDescription,
+            BigDecimal weightKg,
+            List<String> allowedModes,
+            List<DisruptionInput> disruptions,
+            ImpactScenarioInput impactScenario) {
+        this(shipmentId, origin, destination, cargoDescription, weightKg, allowedModes,
+                disruptions, impactScenario, null, null, null, null, null);
+    }
+
     public record DisruptionInput(
             @NotBlank String signalId,
             List<String> affectedModes,
@@ -56,5 +84,21 @@ public record RerouteRequest(
             @NotNull @DecimalMin("0.0") BigDecimal dailyStoppageInr,
             List<String> closedLegIds,
             @DecimalMin("0.1") BigDecimal freightMultiplier
+    ) {}
+
+    public record DocumentInput(
+            @NotBlank String documentType,
+            Map<String, Object> fields,
+            String rawText
+    ) {}
+
+    public record CarrierQuoteInput(
+            @NotBlank String carrierId,
+            @NotBlank String mode,
+            @NotNull @Positive BigDecimal amount,
+            String currency,
+            @Positive Double transitHours,
+            @Positive BigDecimal quotedCapacityKg,
+            Boolean includesInsurance
     ) {}
 }

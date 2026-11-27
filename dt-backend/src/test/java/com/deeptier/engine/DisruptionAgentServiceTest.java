@@ -110,10 +110,33 @@ class DisruptionAgentServiceTest {
         AnalyzeDisruptionResponse zeroRes = service.analyzeDisruption(new AnalyzeDisruptionRequest(
                 "Port congestion on HSN 7325 with 0% tariff and 4 days delay",
                 "HPH-1042", null, 300, 20, 30, null, null, null, null));
-        assertEquals("LOGISTICS_DISRUPTION", zeroRes.signalType());
+        assertEquals("TARIFF_SHOCK", zeroRes.signalType());
         assertEquals(0, BigDecimal.ZERO.compareTo(zeroRes.tariffDeltaPercent()));
         assertEquals(4, zeroRes.delayDays());
         assertEquals(0, BigDecimal.ZERO.compareTo(zeroRes.simulation().tariffShock().totalExposureInr()));
+    }
+
+    @Test
+    void handlesCustomsDelayWithoutRateAndDoesNotFabricateHsCode() {
+        DisruptionAgentService service = new DisruptionAgentService(
+                offlineGateway(), realWhatIfService(), mockRepo(), new AuditService(mockAuditRepo()));
+
+        AnalyzeDisruptionResponse customsDelay = service.analyzeDisruption(new AnalyzeDisruptionRequest(
+                "Customs delay of 3 days at port",
+                "HPH-1042", null, 300, 20, 30, null, null, null, null));
+        assertEquals("LOGISTICS_DISRUPTION", customsDelay.signalType());
+        assertEquals(3, customsDelay.delayDays());
+        assertEquals(0, BigDecimal.ZERO.compareTo(customsDelay.tariffDeltaPercent()));
+        assertEquals("UNKNOWN", customsDelay.affectedHsCode());
+        assertEquals(false, customsDelay.simulationSkipped());
+
+        AnalyzeDisruptionResponse customBasis = service.analyzeDisruption(new AnalyzeDisruptionRequest(
+                "12.5% tariff on HSN 7325 from China",
+                "HPH-1042", null, 300, 20, 30,
+                BigDecimal.valueOf(1_000_000), new BigDecimal("0.5"), null, null));
+        assertEquals("7325", customBasis.affectedHsCode());
+        assertEquals(0, new BigDecimal("62500.00").compareTo(customBasis.simulation().tariffShock().totalExposureInr()));
+        assertTrue(customBasis.executiveBrief().contains("62500.00"));
     }
 
     @Test
@@ -122,14 +145,16 @@ class DisruptionAgentServiceTest {
                 offlineGateway(), realWhatIfService(), mockRepo(), new AuditService(mockAuditRepo()));
 
         AnalyzeDisruptionResponse res = service.analyzeDisruption(new AnalyzeDisruptionRequest(
-                "Quarterly review meeting scheduled for Friday morning.",
+                "Office lunch menu updated.",
                 "HPH-1042", null, 300, 20, 30, null, null, null, null));
 
         assertEquals("UNPARSED", res.signalType());
         assertEquals("UNKNOWN", res.affectedHsCode());
+        assertEquals(true, res.simulationSkipped());
         assertEquals(0, BigDecimal.ZERO.compareTo(res.tariffDeltaPercent()));
         assertTrue(res.confidence().compareTo(new BigDecimal("0.30")) <= 0);
         assertEquals(0, BigDecimal.ZERO.compareTo(res.simulation().tariffShock().totalExposureInr()));
+        assertTrue(res.simulation().recoveryOptions().isEmpty());
         assertTrue(res.executiveBrief().toLowerCase().contains("human review"));
     }
 
